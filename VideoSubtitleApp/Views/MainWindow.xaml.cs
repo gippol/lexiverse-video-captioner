@@ -42,9 +42,8 @@ public partial class MainWindow : Window
 
     // ── 一時ファイルディレクトリ
     private static readonly string TempDir    = Path.Combine(Path.GetTempPath(), "VideoSubtitleApp");
-    private static readonly string FFmpegDir  = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "VideoSubtitleApp", "ffmpeg");
+    private static readonly string FFmpegDir  = Path.Combine(AppContext.BaseDirectory, "tools/");
+    private static readonly string ModelDir  = Path.Combine(AppContext.BaseDirectory, "models/");
 
     // ────────────────────────────────
     // コンストラクター
@@ -353,6 +352,7 @@ public partial class MainWindow : Window
 
             List<SubtitleEntry> entries = await _transcriptionSvc.TranscribeAsync(
                     _currentWavPath,
+                    ModelDir,
                     modelName: ComboModelSettings.SelectedValue.ToString() ?? "",
                     language: ComboLanguageSettings.SelectedIndex == 0 ? "ja" : "en",
                     progress: transcribeProgress,

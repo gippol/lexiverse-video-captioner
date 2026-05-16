@@ -55,6 +55,7 @@ public class TranscriptionService
     /// </summary>
     public async Task<List<SubtitleEntry>> TranscribeAsync(
       string wavPath,
+      string modelDir,
       string modelName,
       string language = "ja",
       IProgress<(string Message, double Percent)>? progress = null,
@@ -63,7 +64,10 @@ public class TranscriptionService
         if (!_initialized)
             throw new InvalidOperationException("InitializeAsync を先に呼んでください。");
 
-        string modelPath = "ggml.bin";
+        string fixdeModelName = GgmlTypeStr.Contains(modelName) ? modelName : DefalutModelName;
+        string modelPath = Path.Combine(modelDir, $"ggml_{fixdeModelName}.bin");
+
+        Directory.CreateDirectory(modelDir);
 
         progress?.Report(("Whisper モデルをロード中...", 0));
 
@@ -78,7 +82,7 @@ public class TranscriptionService
             HttpClient httpClient = new HttpClient();
             WhisperGgmlDownloader downloader = new WhisperGgmlDownloader(httpClient);
             using (var modelStream = await downloader.GetGgmlModelAsync(
-                StrToGgmlType(GgmlTypeStr.Contains(modelName) ? modelName : DefalutModelName),
+                StrToGgmlType(fixdeModelName),
                 QuantizationType.Q8_0,
                 CancellationToken.None
             ))
