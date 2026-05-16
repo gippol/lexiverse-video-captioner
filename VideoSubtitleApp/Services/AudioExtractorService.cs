@@ -68,12 +68,14 @@ public class AudioExtractorService
 
         // ④ zip を展開して ffmpeg.exe だけ取り出す
         progress?.Report("展開中...");
-        using var archive = System.IO.Compression.ZipFile.OpenRead(tmpZip);
-        var entry = archive.Entries.FirstOrDefault(e =>
-            e.Name.Equals("ffmpeg.exe", StringComparison.OrdinalIgnoreCase))
-            ?? throw new FileNotFoundException("zip 内に ffmpeg.exe が見つかりませんでした");
+        using (var archive = System.IO.Compression.ZipFile.OpenRead(tmpZip))
+        {
+            var entry = archive.Entries.FirstOrDefault(e =>
+                e.Name.Equals("ffmpeg.exe", StringComparison.OrdinalIgnoreCase))
+                ?? throw new FileNotFoundException("zip 内に ffmpeg.exe が見つかりませんでした");
 
-        entry.ExtractToFile(ffmpegExe, overwrite: true);
+            entry.ExtractToFile(ffmpegExe, overwrite: true);
+        }
 
         // ⑤ 後片付け
         File.Delete(tmpZip);
