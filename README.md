@@ -94,8 +94,7 @@ VideoSubtitleApp/
 ### 日本語が文字化けする
 
 → Whisper の自動言語検出は英語に偏ることがあります。
-   `TranscriptionService.cs` の `language` を `"ja"` に明示していますが、
-   `whisper-base` や `whisper-medium` に切り替えると精度が上がります。
+   最低 `Small` で、PCにそれなりのGPUが乗っていれば `Medium` 以上を使用することをお勧めします。
    
 ### Nugetのエラーでたとき、やってみること
 → dotnet nuget locals all --clear
