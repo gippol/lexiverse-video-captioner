@@ -113,7 +113,7 @@ public partial class MainWindow : Window
                 FFmpegDir,
                 new Progress<string>(msg => Dispatcher.Invoke(() => SetStatus(msg))));
 
-            SetStatus("Foundry Local SDK を初期化中...");
+            SetStatus("Transcript service を初期化中...");
             await _transcriptionSvc.InitializeAsync(
                 new Progress<string>(msg => Dispatcher.Invoke(() => SetStatus(msg))));
 
