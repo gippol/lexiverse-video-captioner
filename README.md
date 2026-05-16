@@ -1,5 +1,7 @@
 # 🎬 LexiVerse Video Captioner
 
+![screenshot](images/doc/app_image.png)
+
 **Whisper** を使ってローカルで動く動画字幕生成 WPF アプリ
 
 ---
