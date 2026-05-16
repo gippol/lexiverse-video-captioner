@@ -1,0 +1,63 @@
+## 表示・ユーザー設定のキャッシュ (Visual Studio)
+/_ReSharper*/
+*.[Dd]ot[Cc]over/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## ビルド生成物 (コンパイルされたコードやバイナリ)
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ex]t[Ee]rnal/
+
+## .NET Core / .NET 5+ 関連の生成物
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## パッケージマネージャー関連 (NuGet)
+**/packages/*
+!**/packages/repositories.config
+*.nuget.props
+*.nuget.targets
+
+## Visual Studio の一時ファイルやキャッシュ
+.vs/
+Generated_Code/
+_Chutzpah*
+ipch/
+*.aps
+*.meta
+*.tmp
+*.tlog
+*.log
+*.vspscc
+*.vsscc
+pagespeed_stats/
+_iinterface_cache/
+NLog.config
+
+## テスト結果とカバレッジ
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+## ローカル開発用の環境設定ファイル（秘密情報を含む可能性があるため除外）
+appsettings.Development.json
+appsettings.Local.json
+*.usersecrets
+
+## OS固有の一時ファイル (Windows)
+Thumbs.db
+ehthumbs.db
+Desktop.ini
