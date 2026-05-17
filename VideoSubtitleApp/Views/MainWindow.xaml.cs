@@ -157,6 +157,8 @@ public partial class MainWindow : Window
         VideoPlayer.Source = new Uri(path);
         VideoPlayer.Play();
         VideoPlayer.Pause();
+        SeekBar.Value = 0;
+        Seek(TimeSpan.FromSeconds(0));
 
         DropGuide.Visibility = Visibility.Collapsed;
         TxtFileName.Text    = Path.GetFileName(path);
