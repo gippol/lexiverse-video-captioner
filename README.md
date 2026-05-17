@@ -94,13 +94,18 @@ VideoSubtitleApp/
 ### 日本語が文字化けする
 
 → Whisper の自動言語検出は英語に偏ることがあります。
+
    最低 `Small` で、PCにそれなりのGPUが乗っていれば `Medium` 以上を使用することをお勧めします。
    
-### Nugetのエラーでたとき、やってみること
+### Nugetのエラーが出たとき、やってみること
 → dotnet nuget locals all --clear
-  bin/ obj/ ディレクトリ削除
-  で再び `dotnet restore` から実行
 
+  bin/ obj/ ディレクトリ削除後、再び `dotnet restore` から実行
+
+## インターネット接続
+  以下のときにインターネットに接続します。すでにダウンロード済みの場合は接続しません。
+  * Whisper.netがWhisperのモデルのダウンロード
+  * ffmpegのダウンロード
 
 ---
 
