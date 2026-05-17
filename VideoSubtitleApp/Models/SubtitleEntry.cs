@@ -23,5 +23,5 @@ public class SubtitleEntry
     /// 現在の再生位置がこの字幕の表示範囲内か
     /// </summary>
     public bool IsActiveAt(TimeSpan position)
-        => position >= StartTime && position <= EndTime;
+        => position >= StartTime && position < EndTime;
 }
