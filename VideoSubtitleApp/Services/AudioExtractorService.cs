@@ -28,7 +28,7 @@ public class AudioExtractorService
         if (!File.Exists(ffmpegExe))
         {
             progress?.Report("FFmpeg をダウンロード中（初回のみ）...");
-            await DownloadFFmpegFromFfbinariesAsync(ffmpegDir, ffmpegExe, progress);
+            await DownloadFFmpegFromGitHubAsync(ffmpegDir, ffmpegExe, progress);
         }
 
         _ffmpegPath = ffmpegExe;
@@ -36,49 +36,95 @@ public class AudioExtractorService
     }
 
     /// <summary>
-    /// ffbinaries.com の API 経由で ffmpeg.exe をダウンロードして展開する
+    /// GitHub Releases から ffmpeg.exe をダウンロードして展開する
     /// </summary>
-    private static async Task DownloadFFmpegFromFfbinariesAsync(
-        string destDir, string ffmpegExe, IProgress<string>? progress)
+    private static async Task DownloadFFmpegFromGitHubAsync(
+        string destDir,
+        string ffmpegExe,
+        IProgress<string>? progress)
     {
         using var http = new HttpClient();
-        http.Timeout = TimeSpan.FromSeconds(30);
+        http.Timeout = TimeSpan.FromSeconds(60);
 
-        // ① ffbinaries API でダウンロード URL を取得
-        progress?.Report("バージョン情報を取得中...");
-        const string ApiUrl = "https://ffbinaries.com/api/v1/version/latest";
-        var json = await http.GetStringAsync(ApiUrl);
+        // GitHub API は User-Agent 必須
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "MyApp/1.0");
 
-        // ② JSON から windows-64 の ffmpeg zip URL をパース
-        //    レスポンス例:
-        //    { "bin": { "windows-64": { "ffmpeg": "https://...ffmpeg...zip" } } }
+        progress?.Report("GitHub Releases 情報を取得中...");
+
+        // 最新 release 情報
+        const string apiUrl =
+            "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
+
+        var json = await http.GetStringAsync(apiUrl);
+
         using var doc = System.Text.Json.JsonDocument.Parse(json);
-        var zipUrl = doc.RootElement
-            .GetProperty("bin")
-            .GetProperty("windows-64")
-            .GetProperty("ffmpeg")
-            .GetString()
-            ?? throw new InvalidOperationException("ffbinaries から URL を取得できませんでした");
 
-        // ③ zip をダウンロード（一時ファイルへ）
+        var assets = doc.RootElement.GetProperty("assets");
+
+        // Windows 64bit shared build を探す
+        // 必要に応じて "lgpl" や "gpl" を変更してね
+        string? zipUrl = null;
+
+        foreach (var asset in assets.EnumerateArray())
+        {
+            var name = asset.GetProperty("name").GetString();
+
+            if (name is not null
+                && name.Contains("win64")
+                && name.Contains("lgpl")
+                && !name.Contains("shared")
+                && name.EndsWith(".zip"))
+            {
+                zipUrl = asset
+                    .GetProperty("browser_download_url")
+                    .GetString();
+
+                break;
+            }
+        }
+
+        if (zipUrl is null)
+        {
+            throw new InvalidOperationException(
+                "GitHub Releases から ffmpeg zip を見つけられませんでした");
+        }
+
         progress?.Report("ffmpeg.zip をダウンロード中...");
-        var tmpZip = Path.Combine(Path.GetTempPath(), "ffmpeg_tmp.zip");
-        var zipBytes = await http.GetByteArrayAsync(zipUrl);
-        await File.WriteAllBytesAsync(tmpZip, zipBytes);
 
-        // ④ zip を展開して ffmpeg.exe だけ取り出す
+        var tmpZip = Path.Combine(
+            Path.GetTempPath(),
+            $"ffmpeg_{Guid.NewGuid()}.zip");
+
+        await using (var stream = await http.GetStreamAsync(zipUrl))
+        await using (var fs = File.Create(tmpZip))
+        {
+            await stream.CopyToAsync(fs);
+        }
+
         progress?.Report("展開中...");
-        using (var archive = System.IO.Compression.ZipFile.OpenRead(tmpZip))
+
+        using (var archive =
+               System.IO.Compression.ZipFile.OpenRead(tmpZip))
         {
             var entry = archive.Entries.FirstOrDefault(e =>
-                e.Name.Equals("ffmpeg.exe", StringComparison.OrdinalIgnoreCase))
-                ?? throw new FileNotFoundException("zip 内に ffmpeg.exe が見つかりませんでした");
+                e.Name.Equals(
+                    "ffmpeg.exe",
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (entry is null)
+            {
+                throw new FileNotFoundException(
+                    "zip 内に ffmpeg.exe が見つかりませんでした");
+            }
+
+            Directory.CreateDirectory(destDir);
 
             entry.ExtractToFile(ffmpegExe, overwrite: true);
         }
 
-        // ⑤ 後片付け
         File.Delete(tmpZip);
+
         progress?.Report("FFmpeg のセットアップが完了しました！");
     }
 
