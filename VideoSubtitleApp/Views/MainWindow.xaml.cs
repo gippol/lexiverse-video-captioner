@@ -105,6 +105,8 @@ public partial class MainWindow : Window
     // ────────────────────────────────
     private async Task InitializeServicesAsync()
     {
+        ShowLoadingOverlay(true, "初期化", "初期化中...");
+
         try
         {
             SetStatus("FFmpeg を準備中...");
@@ -122,6 +124,10 @@ public partial class MainWindow : Window
         {
             SetStatus($"初期化エラー: {ex.Message}");
             _logger.LogError(ex, "初期化に失敗しました");
+        }
+        finally
+        {
+            ShowLoadingOverlay(false);
         }
     }
 
@@ -326,7 +332,7 @@ public partial class MainWindow : Window
         _isTranscribing   = true;
         _transcriptionCts = new CancellationTokenSource();
 
-        ShowLoadingOverlay(true);
+        ShowLoadingOverlay(true, "🎙 字幕を生成中...", "準備中...");
         BtnTranscribe.IsEnabled = false;
 
         try
@@ -534,13 +540,14 @@ public partial class MainWindow : Window
         TxtStatus.Text = message;
     }
 
-    private void ShowLoadingOverlay(bool show)
+    private void ShowLoadingOverlay(bool show, string? title = null, string? detail = null)
     {
         LoadingOverlay.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (show)
         {
             LoadingProgress.Value = 0;
-            TxtLoadingDetail.Text = "準備中...";
+            TxtLoadingTitle.Text = title ?? TxtLoadingTitle.Text;
+            TxtLoadingDetail.Text = detail ?? TxtLoadingDetail.Text;
         }
     }
 
