@@ -11,7 +11,11 @@ namespace VideoSubtitleApp.Services;
 /// </summary>
 public class AudioExtractorService
 {
+    private const string ffmpegName = "ffmpeg"; // ffmpeg
+    private const string ffmpegExeName = ffmpegName + ".exe"; // ffmpeg.exe
+
     private bool _ffmpegReady;
+    private bool _isFfmpegInstalled;
     private string? _ffmpegPath;
 
     /// <summary>
@@ -23,9 +27,13 @@ public class AudioExtractorService
 
         Directory.CreateDirectory(ffmpegDir);
 
-        var ffmpegExe = Path.Combine(ffmpegDir, "ffmpeg.exe");
+        var ffmpegExe = Path.Combine(ffmpegDir, ffmpegExeName);
 
-        if (!File.Exists(ffmpegExe))
+        if (IsFfmpegInstalled())
+        {
+            _isFfmpegInstalled = true;
+        }
+        else if (!File.Exists(ffmpegExe))
         {
             progress?.Report("FFmpeg をダウンロード中（初回のみ）...");
             await DownloadFFmpegFromGitHubAsync(ffmpegDir, ffmpegExe, progress);
@@ -62,8 +70,7 @@ public class AudioExtractorService
 
         var assets = doc.RootElement.GetProperty("assets");
 
-        // Windows 64bit shared build を探す
-        // 必要に応じて "lgpl" や "gpl" を変更してね
+        // Windows 64bit build を探す
         string? zipUrl = null;
 
         foreach (var asset in assets.EnumerateArray())
@@ -109,7 +116,7 @@ public class AudioExtractorService
         {
             var entry = archive.Entries.FirstOrDefault(e =>
                 e.Name.Equals(
-                    "ffmpeg.exe",
+                    ffmpegExeName,
                     StringComparison.OrdinalIgnoreCase));
 
             if (entry is null)
@@ -142,7 +149,7 @@ public class AudioExtractorService
     IProgress<string>? progress = null,
     CancellationToken ct = default)
     {
-        if (!_ffmpegReady || string.IsNullOrEmpty(_ffmpegPath))
+        if (!_ffmpegReady || (!_isFfmpegInstalled && string.IsNullOrEmpty(_ffmpegPath)))
             throw new InvalidOperationException("EnsureFFmpegAsync を先に呼んでください。");
 
         Directory.CreateDirectory(outputDir);
@@ -166,7 +173,7 @@ public class AudioExtractorService
 
         var psi = new ProcessStartInfo
         {
-            FileName = _ffmpegPath, // ffmpeg実行ファイルのパス
+            FileName = _isFfmpegInstalled ? ffmpegName : _ffmpegPath, // ffmpeg実行ファイルのパス
             Arguments = args,
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -244,5 +251,40 @@ public class AudioExtractorService
 
         progress?.Report("音声抽出完了！");
         return wavPath;
+    }
+
+    /// <summary>
+    /// ffmpegがインストールされているかチェックする
+    /// </summary>
+    /// <returns></returns>
+    public static bool IsFfmpegInstalled()
+    {
+        try
+        {
+            using var process = new Process();
+
+            process.StartInfo.FileName = ffmpegName;
+            process.StartInfo.Arguments = "-version";
+
+            process.StartInfo.RedirectStandardOutput = true;
+            process.StartInfo.RedirectStandardError = true;
+
+            process.StartInfo.UseShellExecute = false;
+            process.StartInfo.CreateNoWindow = true;
+
+            process.Start();
+
+            // 数秒待つ
+            process.WaitForExit(3000);
+
+            // ffmpeg は version 情報を stdout に出す
+            string output = process.StandardOutput.ReadToEnd();
+
+            return output.Contains("ffmpeg version");
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
