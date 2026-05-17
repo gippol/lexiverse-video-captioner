@@ -104,8 +104,8 @@ VideoSubtitleApp/
 
 ## インターネット接続
   以下のときにインターネットに接続します。すでにダウンロード済みの場合は接続しません。
-  * Whisper.netがWhisperのモデルのダウンロード
-  * ffmpegのダウンロード
+  * Whisperのモデル(Whisper.netが使用)のダウンロード
+  * ffmpeg(公式寄りのGitHubから)のダウンロード
 
 ---
 
