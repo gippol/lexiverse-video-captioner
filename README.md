@@ -33,15 +33,13 @@
 
 ```powershell
 # 1. プロジェクトをクローン / フォルダを開く
-cd VideoSubtitleApp
+cd lexiverse-video-captioner/VideoSubtitleApp
 
-# 2. WinML NuGet パッケージは ORT フィードが必要なので nuget.config が同梱されています
-
-# 3. リストア & ビルド（win-x64 をターゲット指定）
+# 2. リストア & ビルド（win-x64 をターゲット指定）
 dotnet restore -r win-x64
 dotnet build -r win-x64 -c Release
 
-# 4. 実行
+# 3. 実行
 dotnet run -r win-x64
 ```
 
