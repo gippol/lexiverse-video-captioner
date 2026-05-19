@@ -11,7 +11,7 @@
 | 機能 | 詳細 |
 |------|------|
 | 🎙 音声→字幕 | Whisper モデルでオフライン文字起こし |
-| 🇯🇵 日本語対応 | `language = "ja"` で日本語を優先認識 |
+| 🇯🇵 日本語対応 | 標準設定は日本語を優先認識 |
 | ▶ 動画プレーヤー | WPF MediaElement による MP4 再生 |
 | 🟡 字幕オーバーレイ | 再生位置に合わせてリアルタイムに字幕表示 |
 | ✏ 字幕編集 | リスト上で字幕テキストをその場で編集 |
@@ -66,7 +66,7 @@ VideoSubtitleApp/
 ├── Models/
 │   └── SubtitleEntry.cs            # 字幕データモデル
 ├── Services/
-│   ├── TranscriptionService.cs     # Foundry Local × Whisper
+│   ├── TranscriptionService.cs     # Whisper
 │   ├── AudioExtractorService.cs    # FFmpeg で MP4→WAV
 │   └── SrtExporter.cs             # SRT ファイル出力
 └── Views/
@@ -81,6 +81,7 @@ VideoSubtitleApp/
 1. **「📂 動画を開く」** でMP4を選択（ドラッグ＆ドロップも可）
 2. **「🎙 字幕を生成」** をクリック → Whisper が音声を文字起こし
    - 初回はモデルのダウンロード（数分）が発生します
+   - 10分の動画で30分ぐらい処理にかかるかと思います
 3. 右パネルの字幕リストで内容を確認・編集
 4. 動画を再生すると、現在位置に対応する字幕がオーバーレイ表示
 5. **「💾 SRT 保存」** で字幕ファイルを書き出し
