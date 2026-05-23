@@ -460,6 +460,7 @@ public partial class MainWindow : Window
 
         ShowLoadingOverlay(true, "🎙 字幕を生成中...", "準備中...");
         BtnTranscribe.IsEnabled = false;
+        await Task.Yield(); // オーバーレイを描画してから重い処理を開始する
 
         try
         {
