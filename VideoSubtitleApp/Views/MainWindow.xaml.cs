@@ -33,6 +33,8 @@ public partial class MainWindow : Window
 
     // ── タイマー (再生位置更新・字幕ハイライト用)
     private readonly DispatcherTimer _playerTimer;
+    private readonly DispatcherTimer _loadingTimer;
+    private DateTime _loadingStartTime;
 
     // ── 一時ファイルディレクトリ
     private static readonly string TempDir   = Path.Combine(Path.GetTempPath(), "VideoSubtitleApp");
@@ -60,6 +62,13 @@ public partial class MainWindow : Window
 
         _playerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _playerTimer.Tick += PlayerTimer_Tick;
+
+        _loadingTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _loadingTimer.Tick += (_, _) =>
+        {
+            var elapsed = DateTime.Now - _loadingStartTime;
+            TxtElapsedTime.Text = $"経過: {(int)elapsed.TotalMinutes:D2}:{elapsed.Seconds:D2}";
+        };
 
         VideoList.ItemsSource    = _videoList;
         SubtitleList.ItemsSource = _filteredSubtitles;
@@ -668,6 +677,14 @@ public partial class MainWindow : Window
             LoadingProgress.Value = 0;
             TxtLoadingTitle.Text  = title  ?? TxtLoadingTitle.Text;
             TxtLoadingDetail.Text = detail ?? TxtLoadingDetail.Text;
+            TxtElapsedTime.Text   = "経過: 00:00";
+            _loadingStartTime     = DateTime.Now;
+            _loadingTimer.Start();
+        }
+        else
+        {
+            _loadingTimer.Stop();
+            TxtElapsedTime.Text = "";
         }
     }
 
