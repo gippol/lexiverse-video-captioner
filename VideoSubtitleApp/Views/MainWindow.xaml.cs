@@ -1,22 +1,15 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Data;
-using System.Windows.Input;
 using System.Windows.Threading;
 using VideoSubtitleApp.Models;
 using VideoSubtitleApp.Services;
 
 namespace VideoSubtitleApp.Views;
 
-// ────────────────────────────────────────────────────────────────────
-// メインウィンドウ
-// ────────────────────────────────────────────────────────────────────
 public partial class MainWindow : Window
 {
     // ── サービス
@@ -25,7 +18,7 @@ public partial class MainWindow : Window
     private readonly ILogger<MainWindow> _logger;
 
     // ── 状態
-    private string? _currentVideoPath;
+    private VideoEntry? _currentVideoEntry;
     private string? _currentWavPath;
     private TimeSpan _videoDuration;
     private bool _isPlaying;
@@ -34,15 +27,16 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _transcriptionCts;
 
     // ── データ
-    private readonly ObservableCollection<SubtitleEntry> _allSubtitles  = new();
+    private readonly ObservableCollection<VideoEntry> _videoList = new();
+    private readonly ObservableCollection<SubtitleEntry> _allSubtitles = new();
     private readonly ObservableCollection<SubtitleEntry> _filteredSubtitles = new();
 
     // ── タイマー (再生位置更新・字幕ハイライト用)
     private readonly DispatcherTimer _playerTimer;
 
     // ── 一時ファイルディレクトリ
-    private static readonly string TempDir    = Path.Combine(Path.GetTempPath(), "VideoSubtitleApp");
-    private static readonly string FFmpegDir  = Path.Combine(AppContext.BaseDirectory, "tools/");
+    private static readonly string TempDir   = Path.Combine(Path.GetTempPath(), "VideoSubtitleApp");
+    private static readonly string FFmpegDir = Path.Combine(AppContext.BaseDirectory, "tools/");
     private static readonly string ModelDir  = Path.Combine(AppContext.BaseDirectory, "models/");
 
     // ────────────────────────────────
@@ -55,48 +49,36 @@ public partial class MainWindow : Window
         using var loggerFactory = LoggerFactory.Create(builder =>
         {
             builder
-            // 最小ログレベルを「Information」に設定（DebugやTraceは除外される）
-            .SetMinimumLevel(LogLevel.Information)
-            
-            // 特定のカテゴリ（名前空間など）ごとに個別のログレベルを設定
-            .AddFilter("Microsoft", LogLevel.Warning)
-            .AddFilter("System", LogLevel.Warning)
-            .AddFilter("VideoSubtitleApp.Program", LogLevel.Debug);
+                .SetMinimumLevel(LogLevel.Information)
+                .AddFilter("Microsoft", LogLevel.Warning)
+                .AddFilter("System", LogLevel.Warning)
+                .AddFilter("VideoSubtitleApp.Program", LogLevel.Debug);
         });
-        _logger              = loggerFactory.CreateLogger<MainWindow>();
-        _transcriptionSvc    = new TranscriptionService(loggerFactory.CreateLogger<TranscriptionService>());
-        _audioExtractorSvc   = new AudioExtractorService();
+        _logger            = loggerFactory.CreateLogger<MainWindow>();
+        _transcriptionSvc  = new TranscriptionService(loggerFactory.CreateLogger<TranscriptionService>());
+        _audioExtractorSvc = new AudioExtractorService();
 
-        // プレーヤータイマー
         _playerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _playerTimer.Tick += PlayerTimer_Tick;
 
-        // 字幕リストのバインディング
+        VideoList.ItemsSource    = _videoList;
         SubtitleList.ItemsSource = _filteredSubtitles;
 
-        // 言語設定
-        ComboLanguageSettings.ItemsSource = new string[] { "日本語", "英語" };
+        ComboLanguageSettings.ItemsSource   = new string[] { "日本語", "英語" };
         ComboLanguageSettings.SelectedIndex = 0;
+        ComboModelSettings.ItemsSource      = TranscriptionService.GgmlTypeStr;
+        ComboModelSettings.SelectedIndex    = TranscriptionService.GgmlTypeStr.IndexOf(TranscriptionService.DefalutModelName);
 
-        // モデル設定
-        ComboModelSettings.ItemsSource = TranscriptionService.GgmlTypeStr;
-        ComboModelSettings.SelectedIndex = TranscriptionService.GgmlTypeStr.IndexOf(TranscriptionService.DefalutModelName);
-
-        // ドラッグ＆ドロップ
         AllowDrop = true;
-        Drop += MainWindow_Drop;
+        Drop     += MainWindow_Drop;
         DragOver += (_, e) =>
         {
             e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
-                        ? DragDropEffects.Copy
-                        : DragDropEffects.None;
+                        ? DragDropEffects.Copy : DragDropEffects.None;
             e.Handled = true;
         };
 
-        // ボリューム初期値
         VideoPlayer.Volume = VolumeSlider.Value;
-
-        // 初期化（非同期）
         Loaded += async (_, _) => await InitializeServicesAsync();
     }
 
@@ -106,7 +88,6 @@ public partial class MainWindow : Window
     private async Task InitializeServicesAsync()
     {
         ShowLoadingOverlay(true, "初期化", "初期化中...");
-
         try
         {
             SetStatus("FFmpeg を準備中...");
@@ -138,38 +119,184 @@ public partial class MainWindow : Window
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Title  = "動画ファイルを選択",
-            Filter = "動画ファイル|*.mp4;*.mov;*.avi;*.mkv;*.wmv;*.webm|すべてのファイル|*.*"
+            Title       = "動画ファイルを選択",
+            Filter      = "動画ファイル|*.mp4;*.mov;*.avi;*.mkv;*.wmv;*.webm|すべてのファイル|*.*",
+            Multiselect = true
         };
         if (dlg.ShowDialog() == true)
-            LoadVideo(dlg.FileName);
+        {
+            foreach (var file in dlg.FileNames)
+                LoadVideo(file);
+        }
     }
 
     private void MainWindow_Drop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
-            LoadVideo(files[0]);
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files || files.Length == 0) return;
+
+        var videoFiles = files.Where(IsVideoFile).ToArray();
+        var srtFiles   = files.Where(f => Path.GetExtension(f).Equals(".srt", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+        foreach (var file in videoFiles)
+            LoadVideo(file);
+
+        foreach (var srt in srtFiles)
+        {
+            // 同時にドロップされた動画に対応するSRTはLoadVideo内で自動読み込みされるためスキップ
+            var matchingDroppedVideo = videoFiles.FirstOrDefault(v =>
+                Path.GetFileNameWithoutExtension(v).Equals(
+                    Path.GetFileNameWithoutExtension(srt),
+                    StringComparison.OrdinalIgnoreCase));
+            if (matchingDroppedVideo == null)
+                LoadSrt(srt);
+        }
     }
 
     private void LoadVideo(string path)
     {
-        _currentVideoPath = path;
-        VideoPlayer.Source = new Uri(path);
+        // 既にリストにある場合はそこに切り替えるだけ
+        var existing = _videoList.FirstOrDefault(v => v.FilePath == path);
+        if (existing != null)
+        {
+            VideoList.SelectedItem = existing;
+            return;
+        }
+
+        var entry = new VideoEntry { FilePath = path };
+        _videoList.Add(entry);
+
+        // 拡張子以外が同名の .srt を自動読み込み
+        var srtPath = Path.ChangeExtension(path, ".srt");
+        if (File.Exists(srtPath))
+        {
+            try
+            {
+                entry.Subtitles = SrtImporter.Import(srtPath);
+                SetStatus($"SRT を自動読み込みしました: {Path.GetFileName(srtPath)}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SRT 自動読み込みに失敗: {path}", srtPath);
+            }
+        }
+
+        VideoList.SelectedItem = entry;
+    }
+
+    private void SwitchToVideo(VideoEntry entry)
+    {
+        StopPlayback();
+
+        _currentVideoEntry = entry;
+        VideoPlayer.Source = new Uri(entry.FilePath);
         VideoPlayer.Play();
         VideoPlayer.Pause();
         SeekBar.Value = 0;
-        Seek(TimeSpan.FromSeconds(0));
+        Seek(TimeSpan.Zero);
 
         DropGuide.Visibility = Visibility.Collapsed;
-        TxtFileName.Text    = Path.GetFileName(path);
-        SetStatus($"動画を読み込みました: {Path.GetFileName(path)}");
+        TxtFileName.Text     = entry.FileName;
+        SetStatus($"動画を読み込みました: {entry.FileName}");
 
-        // 再生コントロールを有効化
-        BtnPlayPause.IsEnabled = true;
-        BtnRewind.IsEnabled    = true;
-        BtnForward.IsEnabled   = true;
-        SeekBar.IsEnabled      = true;
+        // 字幕を復元
+        _allSubtitles.Clear();
+        _filteredSubtitles.Clear();
+        TxtSearch.Text = string.Empty;
+        foreach (var sub in entry.Subtitles)
+        {
+            _allSubtitles.Add(sub);
+            _filteredSubtitles.Add(sub);
+        }
+
+        bool hasSubs = entry.Subtitles.Count > 0;
+        TxtSubtitleCount.Text       = $"{_filteredSubtitles.Count} 件";
+        BtnExportSrt.IsEnabled      = hasSubs;
+        BtnClearSubtitles.IsEnabled = hasSubs;
+
+        BtnPlayPause.IsEnabled  = true;
+        BtnRewind.IsEnabled     = true;
+        BtnForward.IsEnabled    = true;
+        SeekBar.IsEnabled       = true;
         BtnTranscribe.IsEnabled = true;
+    }
+
+    private void VideoList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (VideoList.SelectedItem is VideoEntry entry && entry != _currentVideoEntry)
+            SwitchToVideo(entry);
+    }
+
+    // ────────────────────────────────
+    // SRT 読み込み
+    // ────────────────────────────────
+    private void BtnLoadSrt_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentVideoEntry == null)
+        {
+            MessageBox.Show("先に動画を選択してください。",
+                            "動画未選択", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title            = "SRT ファイルを選択",
+            Filter           = "SRT 字幕ファイル|*.srt|すべてのファイル|*.*",
+            InitialDirectory = Path.GetDirectoryName(_currentVideoEntry.FilePath) ?? string.Empty
+        };
+
+        // 同名SRTがあれば初期ファイル名として提案
+        var matchingSrt = Path.ChangeExtension(_currentVideoEntry.FilePath, ".srt");
+        if (File.Exists(matchingSrt))
+            dlg.FileName = Path.GetFileName(matchingSrt);
+
+        if (dlg.ShowDialog() == true)
+            LoadSrt(dlg.FileName);
+    }
+
+    private void LoadSrt(string srtPath)
+    {
+        if (_currentVideoEntry == null)
+        {
+            SetStatus("動画を先に読み込んでください。");
+            return;
+        }
+
+        try
+        {
+            var entries = SrtImporter.Import(srtPath);
+
+            _currentVideoEntry.Subtitles = entries;
+
+            _allSubtitles.Clear();
+            _filteredSubtitles.Clear();
+            TxtSearch.Text = string.Empty;
+            foreach (var sub in entries)
+            {
+                _allSubtitles.Add(sub);
+                _filteredSubtitles.Add(sub);
+            }
+
+            bool hasSubs = entries.Count > 0;
+            TxtSubtitleCount.Text       = $"{entries.Count} 件";
+            BtnExportSrt.IsEnabled      = hasSubs;
+            BtnClearSubtitles.IsEnabled = hasSubs;
+            SubtitleOverlay.Visibility  = Visibility.Collapsed;
+
+            SetStatus($"SRT を読み込みました: {Path.GetFileName(srtPath)} ({entries.Count} 件)");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"SRT の読み込みに失敗しました:\n{ex.Message}",
+                            "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            _logger.LogError(ex, "SRT 読み込みに失敗: {path}", srtPath);
+        }
+    }
+
+    private static bool IsVideoFile(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext is ".mp4" or ".mov" or ".avi" or ".mkv" or ".wmv" or ".webm" or ".mp3";
     }
 
     // ────────────────────────────────
@@ -177,10 +304,10 @@ public partial class MainWindow : Window
     // ────────────────────────────────
     private void VideoPlayer_MediaOpened(object sender, RoutedEventArgs e)
     {
-        _videoDuration    = VideoPlayer.NaturalDuration.HasTimeSpan
-                            ? VideoPlayer.NaturalDuration.TimeSpan
-                            : TimeSpan.Zero;
-        SeekBar.Maximum   = _videoDuration.TotalSeconds;
+        _videoDuration  = VideoPlayer.NaturalDuration.HasTimeSpan
+                          ? VideoPlayer.NaturalDuration.TimeSpan
+                          : TimeSpan.Zero;
+        SeekBar.Maximum = _videoDuration.TotalSeconds;
         UpdateTimecode(TimeSpan.Zero);
     }
 
@@ -209,24 +336,24 @@ public partial class MainWindow : Window
     private void StartPlayback()
     {
         VideoPlayer.Play();
-        _isPlaying             = true;
-        BtnPlayPause.Content   = "⏸ 一時停止";
+        _isPlaying           = true;
+        BtnPlayPause.Content = "⏸ 一時停止";
         _playerTimer.Start();
     }
 
     private void PausePlayback()
     {
         VideoPlayer.Pause();
-        _isPlaying             = false;
-        BtnPlayPause.Content   = "▶ 再生";
+        _isPlaying           = false;
+        BtnPlayPause.Content = "▶ 再生";
         _playerTimer.Stop();
     }
 
     private void StopPlayback()
     {
         VideoPlayer.Stop();
-        _isPlaying             = false;
-        BtnPlayPause.Content   = "▶ 再生";
+        _isPlaying           = false;
+        BtnPlayPause.Content = "▶ 再生";
         _playerTimer.Stop();
     }
 
@@ -258,7 +385,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // シークバー
     private void SeekBar_DragStarted(object sender, DragStartedEventArgs e)
     {
         _isDraggingSeekBar = true;
@@ -278,7 +404,6 @@ public partial class MainWindow : Window
             UpdateTimecode(TimeSpan.FromSeconds(e.NewValue));
     }
 
-    // タイマーで再生位置を更新
     private void PlayerTimer_Tick(object? sender, EventArgs e)
     {
         if (_isDraggingSeekBar) return;
@@ -302,10 +427,8 @@ public partial class MainWindow : Window
         var active = _allSubtitles.FirstOrDefault(s => s.IsActiveAt(pos));
         if (active != null)
         {
-            TxtSubtitleOverlay.Text     = active.Text;
-            SubtitleOverlay.Visibility  = Visibility.Visible;
-
-            // リストも自動スクロール（選択はしない）
+            TxtSubtitleOverlay.Text    = active.Text;
+            SubtitleOverlay.Visibility = Visibility.Visible;
             SubtitleList.ScrollIntoView(active);
         }
         else
@@ -319,10 +442,8 @@ public partial class MainWindow : Window
     // ────────────────────────────────
     private async void BtnTranscribe_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentVideoPath == null) return;
-        if (_isTranscribing)           return;
+        if (_currentVideoEntry == null || _isTranscribing) return;
 
-        // 既存の字幕がある場合は確認
         if (_allSubtitles.Count > 0)
         {
             var result = MessageBox.Show(
@@ -330,6 +451,9 @@ public partial class MainWindow : Window
                 "確認", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (result != MessageBoxResult.Yes) return;
         }
+
+        // 処理対象エントリをローカルに保持（処理中に動画切り替えが起きても正しいエントリに保存するため）
+        var targetEntry = _currentVideoEntry;
 
         _isTranscribing   = true;
         _transcriptionCts = new CancellationTokenSource();
@@ -339,7 +463,6 @@ public partial class MainWindow : Window
 
         try
         {
-            // Step 1: 音声抽出
             var audioProgress = new Progress<string>(msg =>
                 Dispatcher.Invoke(() =>
                 {
@@ -348,9 +471,8 @@ public partial class MainWindow : Window
                 }));
 
             _currentWavPath = await _audioExtractorSvc.ExtractAudioAsync(
-                _currentVideoPath, TempDir, audioProgress, _transcriptionCts.Token);
+                targetEntry.FilePath, TempDir, audioProgress, _transcriptionCts.Token);
 
-            // Step 2: 文字起こし
             var transcribeProgress = new Progress<(string Message, double Percent)>(p =>
                 Dispatcher.Invoke(() =>
                 {
@@ -359,26 +481,32 @@ public partial class MainWindow : Window
                 }));
 
             List<SubtitleEntry> entries = await _transcriptionSvc.TranscribeAsync(
-                    _currentWavPath,
-                    ModelDir,
-                    modelName: ComboModelSettings.SelectedValue.ToString() ?? "",
-                    language: ComboLanguageSettings.SelectedIndex == 0 ? "ja" : "en",
-                    progress: transcribeProgress,
-                    ct: _transcriptionCts.Token);
+                _currentWavPath,
+                ModelDir,
+                modelName: ComboModelSettings.SelectedValue?.ToString() ?? "",
+                language: ComboLanguageSettings.SelectedIndex == 0 ? "ja" : "en",
+                progress: transcribeProgress,
+                ct: _transcriptionCts.Token);
 
+            targetEntry.Subtitles = entries;
 
-            // UIに反映
-            _allSubtitles.Clear();
-            _filteredSubtitles.Clear();
-            foreach (var entry in entries)
+            // 現在表示中の動画が対象と一致する場合のみUIを更新
+            if (_currentVideoEntry == targetEntry)
             {
-                _allSubtitles.Add(entry);
-                _filteredSubtitles.Add(entry);
+                _allSubtitles.Clear();
+                _filteredSubtitles.Clear();
+                foreach (var entry in entries)
+                {
+                    _allSubtitles.Add(entry);
+                    _filteredSubtitles.Add(entry);
+                }
+
+                bool hasSubs = entries.Count > 0;
+                TxtSubtitleCount.Text       = $"{entries.Count} 件";
+                BtnExportSrt.IsEnabled      = hasSubs;
+                BtnClearSubtitles.IsEnabled = hasSubs;
             }
 
-            TxtSubtitleCount.Text   = $"{entries.Count} 件";
-            BtnExportSrt.IsEnabled  = entries.Count > 0;
-            BtnClearSubtitles.IsEnabled = entries.Count > 0;
             SetStatus($"字幕を生成しました: {entries.Count} 件");
         }
         catch (OperationCanceledException)
@@ -398,7 +526,6 @@ public partial class MainWindow : Window
             BtnTranscribe.IsEnabled = true;
             ShowLoadingOverlay(false);
 
-            // 一時WAVを削除
             if (_currentWavPath != null && File.Exists(_currentWavPath))
             {
                 try { File.Delete(_currentWavPath); } catch { /* 無視 */ }
@@ -420,8 +547,8 @@ public partial class MainWindow : Window
             Title      = "SRT ファイルを保存",
             Filter     = "SRT 字幕ファイル|*.srt|すべてのファイル|*.*",
             DefaultExt = ".srt",
-            FileName   = _currentVideoPath != null
-                         ? Path.GetFileNameWithoutExtension(_currentVideoPath)
+            FileName   = _currentVideoEntry != null
+                         ? Path.GetFileNameWithoutExtension(_currentVideoEntry.FilePath)
                          : "subtitle"
         };
 
@@ -451,12 +578,15 @@ public partial class MainWindow : Window
                                      "確認", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes) return;
 
+        if (_currentVideoEntry != null)
+            _currentVideoEntry.Subtitles = new List<SubtitleEntry>();
+
         _allSubtitles.Clear();
         _filteredSubtitles.Clear();
-        TxtSubtitleCount.Text         = "0 件";
-        BtnExportSrt.IsEnabled        = false;
-        BtnClearSubtitles.IsEnabled   = false;
-        SubtitleOverlay.Visibility    = Visibility.Collapsed;
+        TxtSubtitleCount.Text       = "0 件";
+        BtnExportSrt.IsEnabled      = false;
+        BtnClearSubtitles.IsEnabled = false;
+        SubtitleOverlay.Visibility  = Visibility.Collapsed;
         SetStatus("字幕をクリアしました。");
     }
 
@@ -467,12 +597,8 @@ public partial class MainWindow : Window
     {
         if (SubtitleList.SelectedItem is SubtitleEntry entry)
         {
-            // 字幕の開始時刻にシーク
             Seek(entry.StartTime);
-            var pos = VideoPlayer.Position;
-            SeekBar.Value = pos.TotalSeconds;
-
-            // 編集エリアを更新
+            SeekBar.Value             = VideoPlayer.Position.TotalSeconds;
             TxtEditSubtitle.IsEnabled = true;
             TxtEditSubtitle.Text      = entry.Text;
             BtnApplyEdit.IsEnabled    = true;
@@ -490,7 +616,6 @@ public partial class MainWindow : Window
     // ────────────────────────────────
     private void TxtEditSubtitle_TextChanged(object sender, TextChangedEventArgs e)
     {
-        // 変更があったら適用ボタンを強調
         BtnApplyEdit.IsEnabled = SubtitleList.SelectedItem != null;
     }
 
@@ -500,8 +625,6 @@ public partial class MainWindow : Window
         {
             entry.Text = TxtEditSubtitle.Text;
 
-            // ObservableCollection はプロパティ変更を自動通知しないので
-            // リストを手動でリフレッシュ
             var idx = _filteredSubtitles.IndexOf(entry);
             if (idx >= 0)
             {
@@ -524,11 +647,8 @@ public partial class MainWindow : Window
 
         foreach (var sub in _allSubtitles)
         {
-            if (string.IsNullOrEmpty(query) ||
-                sub.Text.ToLowerInvariant().Contains(query))
-            {
+            if (string.IsNullOrEmpty(query) || sub.Text.ToLowerInvariant().Contains(query))
                 _filteredSubtitles.Add(sub);
-            }
         }
 
         TxtSubtitleCount.Text = $"{_filteredSubtitles.Count} 件";
@@ -537,10 +657,7 @@ public partial class MainWindow : Window
     // ────────────────────────────────
     // ヘルパー
     // ────────────────────────────────
-    private void SetStatus(string message)
-    {
-        TxtStatus.Text = message;
-    }
+    private void SetStatus(string message) => TxtStatus.Text = message;
 
     private void ShowLoadingOverlay(bool show, string? title = null, string? detail = null)
     {
@@ -548,28 +665,21 @@ public partial class MainWindow : Window
         if (show)
         {
             LoadingProgress.Value = 0;
-            TxtLoadingTitle.Text = title ?? TxtLoadingTitle.Text;
+            TxtLoadingTitle.Text  = title  ?? TxtLoadingTitle.Text;
             TxtLoadingDetail.Text = detail ?? TxtLoadingDetail.Text;
         }
-    }
-
-    string ToSrtTime(TimeSpan time)
-    {
-        return time.ToString(@"hh\:mm\:ss\,fff");
     }
 
     // ────────────────────────────────
     // ウィンドウクローズ時のクリーンアップ
     // ────────────────────────────────
-    protected override async void OnClosed(EventArgs e)
+    protected override void OnClosed(EventArgs e)
     {
         base.OnClosed(e);
         _transcriptionCts?.Cancel();
         _playerTimer.Stop();
         VideoPlayer.Stop();
-        //await _transcriptionSvc.DisposeAsync();
 
-        // 一時ディレクトリを掃除
         try
         {
             if (Directory.Exists(TempDir))
