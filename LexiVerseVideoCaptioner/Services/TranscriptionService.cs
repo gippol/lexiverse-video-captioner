@@ -1,14 +1,14 @@
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.IO;
-using VideoSubtitleApp.Models;
+using LexiVerseVideoCaptioner.Models;
 using Whisper.net;
 using Whisper.net.Ggml;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 using System.Net.Http;
 
 
-namespace VideoSubtitleApp.Services;
+namespace LexiVerseVideoCaptioner.Services;
 
 /// <summary>
 /// Foundry Local の Whisper モデルを使って音声ファイルをテキスト化し、

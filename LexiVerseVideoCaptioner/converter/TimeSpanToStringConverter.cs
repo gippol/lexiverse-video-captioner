@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Windows.Data;
 
-namespace VideoSubtitleApp.Converters;
+namespace LexiVerseVideoCaptioner.Converters;
 // ────────────────────────────────────────────────────────────────────
 // TimeSpan → "MM:SS" 変換コンバーター（XAML バインディング用）
 // ────────────────────────────────────────────────────────────────────

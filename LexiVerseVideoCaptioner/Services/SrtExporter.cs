@@ -1,7 +1,7 @@
-using VideoSubtitleApp.Models;
+using LexiVerseVideoCaptioner.Models;
 using System.IO;
 
-namespace VideoSubtitleApp.Services;
+namespace LexiVerseVideoCaptioner.Services;
 
 /// <summary>
 /// 字幕エントリを SRT ファイルとして書き出すサービス

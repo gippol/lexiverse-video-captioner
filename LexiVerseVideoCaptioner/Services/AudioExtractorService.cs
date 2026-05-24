@@ -4,7 +4,7 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 
-namespace VideoSubtitleApp.Services;
+namespace LexiVerseVideoCaptioner.Services;
 
 /// <summary>
 /// MP4 動画から音声を WAV として抽出するサービス（Xabe.FFmpeg を使用）

@@ -5,10 +5,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
-using VideoSubtitleApp.Models;
-using VideoSubtitleApp.Services;
+using LexiVerseVideoCaptioner.Models;
+using LexiVerseVideoCaptioner.Services;
 
-namespace VideoSubtitleApp.Views;
+namespace LexiVerseVideoCaptioner.Views;
 
 public partial class MainWindow : Window
 {
@@ -37,7 +37,7 @@ public partial class MainWindow : Window
     private DateTime _loadingStartTime;
 
     // ── 一時ファイルディレクトリ
-    private static readonly string TempDir   = Path.Combine(Path.GetTempPath(), "VideoSubtitleApp");
+    private static readonly string TempDir   = Path.Combine(Path.GetTempPath(), "LexiVerseVideoCaptioner");
     private static readonly string FFmpegDir = Path.Combine(AppContext.BaseDirectory, "tools/");
     private static readonly string ModelDir  = Path.Combine(AppContext.BaseDirectory, "models/");
 
@@ -54,7 +54,7 @@ public partial class MainWindow : Window
                 .SetMinimumLevel(LogLevel.Information)
                 .AddFilter("Microsoft", LogLevel.Warning)
                 .AddFilter("System", LogLevel.Warning)
-                .AddFilter("VideoSubtitleApp.Program", LogLevel.Debug);
+                .AddFilter("LexiVerseVideoCaptioner.Program", LogLevel.Debug);
         });
         _logger            = loggerFactory.CreateLogger<MainWindow>();
         _transcriptionSvc  = new TranscriptionService(loggerFactory.CreateLogger<TranscriptionService>());

@@ -1,8 +1,8 @@
 using System.IO;
 using System.Text.RegularExpressions;
-using VideoSubtitleApp.Models;
+using LexiVerseVideoCaptioner.Models;
 
-namespace VideoSubtitleApp.Services;
+namespace LexiVerseVideoCaptioner.Services;
 
 public static class SrtImporter
 {

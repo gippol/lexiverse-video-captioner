@@ -1,4 +1,4 @@
-<Window x:Class="VideoSubtitleApp.Views.MainWindow"
+<Window x:Class="LexiVerseVideoCaptioner.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="🎬 LexiVerse Video Captioner"
@@ -11,7 +11,7 @@
     <Window.Resources>
         <!-- タイムコード表示用コンバーター (分:秒) -->
         <converter:TimeSpanToStringConverter x:Key="TsConverter"
-            xmlns:converter="clr-namespace:VideoSubtitleApp.Converters"/>
+            xmlns:converter="clr-namespace:LexiVerseVideoCaptioner.Converters"/>
     </Window.Resources>
 
     <Grid>

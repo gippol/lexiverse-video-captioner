@@ -2,7 +2,7 @@
 using System.Data;
 using System.Windows;
 
-namespace VideoSubtitleApp
+namespace LexiVerseVideoCaptioner
 {
     /// <summary>
     /// Interaction logic for App.xaml

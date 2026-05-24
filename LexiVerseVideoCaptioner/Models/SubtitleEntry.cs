@@ -1,4 +1,4 @@
-namespace VideoSubtitleApp.Models;
+namespace LexiVerseVideoCaptioner.Models;
 
 /// <summary>
 /// 字幕の1エントリ（開始時刻・終了時刻・テキスト）

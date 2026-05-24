@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 
-namespace VideoSubtitleApp.Models;
+namespace LexiVerseVideoCaptioner.Models;
 
 public class VideoEntry : INotifyPropertyChanged
 {
