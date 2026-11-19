@@ -73,7 +73,7 @@ public partial class MainWindow : Window
         VideoList.ItemsSource    = _videoList;
         SubtitleList.ItemsSource = _filteredSubtitles;
 
-        ComboLanguageSettings.ItemsSource   = new string[] { "日本語", "英語" };
+        ComboLanguageSettings.ItemsSource   = new string[] { "英語", "日本語" };
         ComboLanguageSettings.SelectedIndex = 0;
         ComboModelSettings.ItemsSource      = TranscriptionService.GgmlTypeStr;
         ComboModelSettings.SelectedIndex    = TranscriptionService.GgmlTypeStr.IndexOf(TranscriptionService.DefalutModelName);
