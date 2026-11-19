@@ -92,7 +92,8 @@ public class TranscriptionService : IDisposable
         _busy = true;
         try
         {
-            using var processor = factory.CreateBuilder()
+            // DisposeAsync は処理中の推論が止まるのを待ってから解放する（キャンセル直後も安全）
+            await using var processor = factory.CreateBuilder()
                 .WithLanguage(language)
                 .WithThreads(Environment.ProcessorCount)
                 .Build();
@@ -103,13 +104,11 @@ public class TranscriptionService : IDisposable
 
             await using var fileStream = File.OpenRead(wavPath);
 
-            await foreach (var result in processor.ProcessAsync(fileStream))
+            // ct を Whisper.net に渡すと、内部の処理（エンコーダー開始時）でも
+            // キャンセルを確認して中断してくれる
+            await foreach (var result in processor.ProcessAsync(fileStream, ct))
             {
-                if (ct.IsCancellationRequested)
-                {
-                    await processor.DisposeAsync();
-                    ct.ThrowIfCancellationRequested();
-                }
+                ct.ThrowIfCancellationRequested();
 
                 progress?.Report(("音声を書き起こし中..", 55));
 
@@ -119,6 +118,9 @@ public class TranscriptionService : IDisposable
                             result.End
                         ));
             }
+
+            // 中断時に列挙が例外なしで終わる場合もあるため、途中までの結果を完了扱いにしない
+            ct.ThrowIfCancellationRequested();
 
             progress?.Report(("字幕データを生成中...", 95));
             var subtitles = BuildSubtitles(rawChunks);
