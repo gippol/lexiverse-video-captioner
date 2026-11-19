@@ -173,6 +173,9 @@ public class TranscriptionService : IDisposable
                 }
             }
 
+            progress?.Report(("ダウンロードしたモデルを検証中...", 5));
+            VerifyModelHash(modelName, partialPath);
+
             File.Move(partialPath, modelPath, overwrite: true);
             _logger.LogInformation("モデルをダウンロードしました: {path}", modelPath);
         }
@@ -181,6 +184,33 @@ public class TranscriptionService : IDisposable
             try { File.Delete(partialPath); } catch { /* 無視 */ }
             throw;
         }
+    }
+
+    // Whisper.net 1.9.0 がダウンロードする Q8_0 モデルの SHA-256
+    // 出典: https://huggingface.co/api/models/sandrohanea/whisper.net/tree/v3/q8_0 の lfs.oid
+    // Whisper.net を更新したらダウンロード元のリビジョンが変わっていないか確認すること。
+    private static readonly Dictionary<GgmlType, string> ModelSha256 = new()
+    {
+        [GgmlType.Tiny]         = "c2085835d3f50733e2ff6e4b41ae8a2b8d8110461e18821b09a15c40c42d1cca",
+        [GgmlType.TinyEn]       = "5bc2b3860aa151a4c6e7bb095e1fcce7cf12c7b020ca08dcec0c6d018bb7dd94",
+        [GgmlType.Base]         = "c577b9a86e7e048a0b7eada054f4dd79a56bbfa911fbdacf900ac5b567cbb7d9",
+        [GgmlType.BaseEn]       = "a4d4a0768075e13cfd7e19df3ae2dbc4a68d37d36a7dad45e8410c9a34f8c87e",
+        [GgmlType.Small]        = "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f",
+        [GgmlType.SmallEn]      = "67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067",
+        [GgmlType.Medium]       = "42a1ffcbe4167d224232443396968db4d02d4e8e87e213d3ee2e03095dea6502",
+        [GgmlType.MediumEn]     = "43fa2cd084de5a04399a896a9a7a786064e221365c01700cea4666005218f11c",
+        [GgmlType.LargeV1]      = "d44614ad6b1d52dd5d0a907a9eaa6684d7bc3c52008f6281b0898aa754548f8a",
+        [GgmlType.LargeV2]      = "fef54e6d898246a65c8285bfa83bd1807e27fadf54d5d4e81754c47634737e8c",
+        [GgmlType.LargeV3]      = "24bc434f372355688ab9a623077a63e5361a1c41f4d8d648977e39f9b060f09e",
+        [GgmlType.LargeV3Turbo] = "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
+    };
+
+    private static void VerifyModelHash(string modelName, string path)
+    {
+        if (!ModelSha256.TryGetValue(StrToGgmlType(modelName), out var expected))
+            throw new InvalidOperationException($"モデル {modelName} の検証用ハッシュが登録されていません。");
+
+        HashVerifier.VerifyFile(path, expected, $"Whisper モデル ({modelName})");
     }
 
     // HttpClient は使い回す（毎回 new するとソケットを使い切る恐れがある）

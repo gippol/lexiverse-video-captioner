@@ -33,7 +33,7 @@ public class AudioExtractorService
         {
             _isFfmpegInstalled = true;
         }
-        else if (!File.Exists(ffmpegExe))
+        else if (!await Task.Run(() => IsBundledFfmpegValid(ffmpegExe)))
         {
             progress?.Report("FFmpeg をダウンロード中（初回のみ）...");
             await DownloadFFmpegFromGitHubAsync(ffmpegDir, ffmpegExe, progress);
@@ -43,8 +43,21 @@ public class AudioExtractorService
         _ffmpegReady = true;
     }
 
+    // ── ダウンロードする FFmpeg（バージョン固定・ハッシュ検証）────────────────
+    // BtbN/FFmpeg-Builds の月末ビルドは長期間保持されるため、それに固定する。
+    // 更新するときは URL と 2 つの SHA-256 をまとめて差し替えること。
+    //   zip のハッシュ: GitHub Releases の asset の digest
+    //   exe のハッシュ: zip 内 bin/ffmpeg.exe を sha256sum した値
+    private const string FFmpegZipUrl =
+        "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/" +
+        "autobuild-2026-10-31-12-59/ffmpeg-n9.0.2-39-g7adfbe40dc-win64-lgpl-9.0.zip";
+    private const string FFmpegZipSha256 =
+        "9d37c564e0d01c18cde184a079fa6ef04d7d2783ada41da81d04165cc8f1a650";
+    private const string FFmpegExeSha256 =
+        "d03c858a130cae1382902925d9f46eb15d7de42e025d34cc29b7ddca6cfb4c62";
+
     /// <summary>
-    /// GitHub Releases から ffmpeg.exe をダウンロードして展開する
+    /// 固定バージョンの FFmpeg をダウンロードし、ハッシュを確認してから展開する
     /// </summary>
     private static async Task DownloadFFmpegFromGitHubAsync(
         string destDir,
@@ -52,88 +65,58 @@ public class AudioExtractorService
         IProgress<string>? progress)
     {
         using var http = new HttpClient();
-        http.Timeout = TimeSpan.FromSeconds(60);
-
-        // GitHub API は User-Agent 必須
-        http.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MyApp/1.0");
-
-        progress?.Report("GitHub Releases 情報を取得中...");
-
-        // 最新 release 情報
-        const string apiUrl =
-            "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
-
-        var json = await http.GetStringAsync(apiUrl);
-
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
-
-        var assets = doc.RootElement.GetProperty("assets");
-
-        // Windows 64bit build を探す
-        string? zipUrl = null;
-
-        foreach (var asset in assets.EnumerateArray())
-        {
-            var name = asset.GetProperty("name").GetString();
-
-            if (name is not null
-                && name.Contains("win64")
-                && name.Contains("lgpl")
-                && !name.Contains("shared")
-                && name.EndsWith(".zip"))
-            {
-                zipUrl = asset
-                    .GetProperty("browser_download_url")
-                    .GetString();
-
-                break;
-            }
-        }
-
-        if (zipUrl is null)
-        {
-            throw new InvalidOperationException(
-                "GitHub Releases から ffmpeg zip を見つけられませんでした");
-        }
+        http.Timeout = TimeSpan.FromMinutes(10);
 
         progress?.Report("ffmpeg.zip をダウンロード中...");
 
         var tmpZip = Path.Combine(
             Path.GetTempPath(),
             $"ffmpeg_{Guid.NewGuid()}.zip");
+        var tmpExe = ffmpegExe + ".partial";
 
-        await using (var stream = await http.GetStreamAsync(zipUrl))
-        await using (var fs = File.Create(tmpZip))
+        try
         {
-            await stream.CopyToAsync(fs);
-        }
-
-        progress?.Report("展開中...");
-
-        using (var archive =
-               System.IO.Compression.ZipFile.OpenRead(tmpZip))
-        {
-            var entry = archive.Entries.FirstOrDefault(e =>
-                e.Name.Equals(
-                    ffmpegExeName,
-                    StringComparison.OrdinalIgnoreCase));
-
-            if (entry is null)
+            await using (var stream = await http.GetStreamAsync(FFmpegZipUrl))
+            await using (var fs = File.Create(tmpZip))
             {
-                throw new FileNotFoundException(
-                    "zip 内に ffmpeg.exe が見つかりませんでした");
+                await stream.CopyToAsync(fs);
             }
 
-            Directory.CreateDirectory(destDir);
+            progress?.Report("ダウンロードしたファイルを検証中...");
+            HashVerifier.VerifyFile(tmpZip, FFmpegZipSha256, "ffmpeg.zip");
 
-            entry.ExtractToFile(ffmpegExe, overwrite: true);
+            progress?.Report("展開中...");
+
+            using (var archive = ZipFile.OpenRead(tmpZip))
+            {
+                var entry = archive.Entries.FirstOrDefault(e =>
+                    e.Name.Equals(ffmpegExeName, StringComparison.OrdinalIgnoreCase));
+
+                if (entry is null)
+                    throw new FileNotFoundException("zip 内に ffmpeg.exe が見つかりませんでした");
+
+                Directory.CreateDirectory(destDir);
+                entry.ExtractToFile(tmpExe, overwrite: true);
+            }
+
+            HashVerifier.VerifyFile(tmpExe, FFmpegExeSha256, ffmpegExeName);
+            File.Move(tmpExe, ffmpegExe, overwrite: true);
         }
-
-        File.Delete(tmpZip);
+        finally
+        {
+            try { File.Delete(tmpZip); } catch { /* 無視 */ }
+            try { File.Delete(tmpExe); } catch { /* 無視 */ }
+        }
 
         progress?.Report("FFmpeg のセットアップが完了しました！");
     }
+
+    /// <summary>
+    /// 同梱の ffmpeg.exe が固定バージョンのものと一致するか
+    /// （壊れている・差し替えられている・古いバージョンの場合は false）
+    /// </summary>
+    private static bool IsBundledFfmpegValid(string ffmpegExe)
+        => File.Exists(ffmpegExe) && HashVerifier.Matches(ffmpegExe, FFmpegExeSha256);
 
     /// <summary>
     /// MP4 から モノラル 16kHz WAV を抽出して返す（Whisper に最適な形式）
