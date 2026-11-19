@@ -41,6 +41,18 @@ public partial class MainWindow : Window
     private static readonly string FFmpegDir = Path.Combine(AppContext.BaseDirectory, "tools/");
     private static readonly string ModelDir  = Path.Combine(AppContext.BaseDirectory, "models/");
 
+    // ── 言語選択肢（表示名と Whisper の言語コードを1か所で対応付ける）
+    private static readonly (string Label, string Code)[] Languages =
+    {
+        ("日本語", "ja"),
+        ("英語",   "en"),
+    };
+
+    private string SelectedLanguageCode =>
+        ComboLanguageSettings.SelectedIndex is int i && i >= 0 && i < Languages.Length
+            ? Languages[i].Code
+            : Languages[0].Code;
+
     // ────────────────────────────────
     // コンストラクター
     // ────────────────────────────────
@@ -73,7 +85,7 @@ public partial class MainWindow : Window
         VideoList.ItemsSource    = _videoList;
         SubtitleList.ItemsSource = _filteredSubtitles;
 
-        ComboLanguageSettings.ItemsSource   = new string[] { "英語", "日本語" };
+        ComboLanguageSettings.ItemsSource   = Languages.Select(l => l.Label).ToArray();
         ComboLanguageSettings.SelectedIndex = 0;
         ComboModelSettings.ItemsSource      = TranscriptionService.GgmlTypeStr;
         ComboModelSettings.SelectedIndex    = TranscriptionService.GgmlTypeStr.IndexOf(TranscriptionService.DefalutModelName);
@@ -494,7 +506,7 @@ public partial class MainWindow : Window
                 _currentWavPath,
                 ModelDir,
                 modelName: ComboModelSettings.SelectedValue?.ToString() ?? "",
-                language: ComboLanguageSettings.SelectedIndex == 0 ? "ja" : "en",
+                language: SelectedLanguageCode,
                 progress: transcribeProgress,
                 ct: _transcriptionCts.Token);
 
