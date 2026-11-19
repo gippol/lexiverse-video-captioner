@@ -15,7 +15,6 @@ public class AudioExtractorService
     private const string ffmpegExeName = ffmpegName + ".exe"; // ffmpeg.exe
 
     private bool _ffmpegReady;
-    private bool _isFfmpegInstalled;
     private string? _ffmpegPath;
 
     /// <summary>
@@ -29,17 +28,23 @@ public class AudioExtractorService
 
         var ffmpegExe = Path.Combine(ffmpegDir, ffmpegExeName);
 
-        if (IsFfmpegInstalled())
+        // PATH 上の ffmpeg を優先（フルパスで確定させる）。
+        // プロセス起動・ハッシュ計算は時間がかかるので UI スレッドを止めないよう別スレッドで行う。
+        var installed = await Task.Run(FindInstalledFfmpeg);
+        if (installed != null)
         {
-            _isFfmpegInstalled = true;
+            _ffmpegPath = installed;
         }
-        else if (!await Task.Run(() => IsBundledFfmpegValid(ffmpegExe)))
+        else
         {
-            progress?.Report("FFmpeg をダウンロード中（初回のみ）...");
-            await DownloadFFmpegFromGitHubAsync(ffmpegDir, ffmpegExe, progress);
+            if (!await Task.Run(() => IsBundledFfmpegValid(ffmpegExe)))
+            {
+                progress?.Report("FFmpeg をダウンロード中（初回のみ）...");
+                await DownloadFFmpegFromGitHubAsync(ffmpegDir, ffmpegExe, progress);
+            }
+            _ffmpegPath = ffmpegExe;
         }
 
-        _ffmpegPath = ffmpegExe;
         _ffmpegReady = true;
     }
 
@@ -132,7 +137,7 @@ public class AudioExtractorService
     IProgress<string>? progress = null,
     CancellationToken ct = default)
     {
-        if (!_ffmpegReady || (!_isFfmpegInstalled && string.IsNullOrEmpty(_ffmpegPath)))
+        if (!_ffmpegReady || string.IsNullOrEmpty(_ffmpegPath))
             throw new InvalidOperationException("EnsureFFmpegAsync を先に呼んでください。");
 
         Directory.CreateDirectory(outputDir);
@@ -142,27 +147,31 @@ public class AudioExtractorService
 
         progress?.Report($"音声を抽出中: {Path.GetFileName(mp4Path)}");
 
-        // ffmpegの引数を組み立て
-        // -i 入力 → -vn（映像無効）→ -ar 16000 → -ac 1 → -c:a pcm_s16le → 出力
-        var args = string.Join(" ",
-            $"-i \"{mp4Path}\"",
-            "-vn",            // 映像ストリームを無効化
-            "-ar 16000",      // サンプルレート 16kHz（Whisper推奨）
-            "-ac 1",          // モノラル
-            "-c:a pcm_s16le", // WAV/PCM 16bit リニア
-            "-y",             // 上書き許可（SetOverwriteOutput相当）
-            $"\"{wavPath}\""
-        );
-
         var psi = new ProcessStartInfo
         {
-            FileName = _isFfmpegInstalled ? ffmpegName : _ffmpegPath, // ffmpeg実行ファイルのパス
-            Arguments = args,
+            FileName = _ffmpegPath, // フルパスで指定（名前解決による別の exe の実行を防ぐ）
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,  // ffmpegの進捗はstderrに出る
             CreateNoWindow = true,
         };
+
+        // ffmpegの引数（ArgumentList は引数ごとに正しくエスケープされる）
+        // -i 入力 → -vn（映像無効）→ -ar 16000 → -ac 1 → -c:a pcm_s16le → 出力
+        foreach (var arg in new[]
+        {
+            "-nostdin",               // 標準入力を読まない（対話待ちで止まるのを防ぐ）
+            "-i", mp4Path,
+            "-vn",                    // 映像ストリームを無効化
+            "-ar", "16000",           // サンプルレート 16kHz（Whisper推奨）
+            "-ac", "1",               // モノラル
+            "-c:a", "pcm_s16le",      // WAV/PCM 16bit リニア
+            "-y",                     // 上書き許可
+            wavPath,
+        })
+        {
+            psi.ArgumentList.Add(arg);
+        }
 
         using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
 
@@ -237,33 +246,55 @@ public class AudioExtractorService
     }
 
     /// <summary>
-    /// ffmpegがインストールされているかチェックする
+    /// PATH 上にインストールされている ffmpeg.exe のフルパスを返す（無ければ null）。
+    /// 名前だけで起動するとカレントディレクトリの ffmpeg.exe が先に使われてしまうため、
+    /// 絶対パスの PATH エントリだけを自前で探索する。
     /// </summary>
-    /// <returns></returns>
-    public static bool IsFfmpegInstalled()
+    public static string? FindInstalledFfmpeg()
+    {
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+
+        foreach (var rawDir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var dir = rawDir.Trim().Trim('"');
+
+            // "." や相対パスのエントリはカレントディレクトリ依存になるため無視する
+            if (!Path.IsPathFullyQualified(dir)) continue;
+
+            var candidate = Path.Combine(dir, ffmpegExeName);
+            if (File.Exists(candidate) && IsWorkingFfmpeg(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 指定パスの実行ファイルが ffmpeg として動作するか確認する
+    /// </summary>
+    private static bool IsWorkingFfmpeg(string exePath)
     {
         try
         {
             using var process = new Process();
-
-            process.StartInfo.FileName = ffmpegName;
-            process.StartInfo.Arguments = "-version";
-
+            process.StartInfo.FileName = exePath;
+            process.StartInfo.ArgumentList.Add("-version");
             process.StartInfo.RedirectStandardOutput = true;
-            process.StartInfo.RedirectStandardError = true;
-
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.CreateNoWindow = true;
 
             process.Start();
 
-            // 数秒待つ
-            process.WaitForExit(3000);
+            // 先に stdout を読み切ってから終了を待つ（バッファ詰まりによるデッドロック防止）
+            var readTask = process.StandardOutput.ReadToEndAsync();
+            if (!process.WaitForExit(5000))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { /* 無視 */ }
+                return false;
+            }
 
             // ffmpeg は version 情報を stdout に出す
-            string output = process.StandardOutput.ReadToEnd();
-
-            return output.Contains("ffmpeg version");
+            return readTask.Result.Contains("ffmpeg version");
         }
         catch
         {
