@@ -14,11 +14,17 @@ namespace LexiVerseVideoCaptioner.Services;
 /// Foundry Local の Whisper モデルを使って音声ファイルをテキスト化し、
 /// 字幕エントリのリストを生成するサービス
 /// </summary>
-public class TranscriptionService 
+public class TranscriptionService : IDisposable
 {
     // FoundryLocalManager はシングルトン — アプリ起動時に一度だけ初期化する
     private bool _initialized;
     private readonly ILogger<TranscriptionService> _logger;
+
+    // ロード済みモデルのキャッシュ（モデルが変わったときだけ再ロードする）
+    private WhisperFactory? _factory;
+    private string? _factoryModelPath;
+    private bool _busy;
+    private bool _disposed;
 
     // 字幕分割の目安（文字数）— 日本語は 1 文字が広いので短めに
     private const int MaxCharsPerSubtitle = 30;
@@ -92,43 +98,90 @@ public class TranscriptionService
             }
         }
 
-        using var factory = WhisperFactory.FromPath(modelPath);
-
         progress?.Report(("モデルをメモリにロード中...", 45));
 
-        using var processor = factory.CreateBuilder()
-            .WithLanguage(language)
-            .WithThreads(Environment.ProcessorCount)
-            .Build();
+        // ロード済みのモデルは使い回す（2回目以降はロード時間なし）
+        var factory = GetOrLoadFactory(modelPath);
 
-        progress?.Report(("音声を書き起こし中...", 55));
-
-        var rawChunks = new List<(string Text, TimeSpan Start, TimeSpan End)>();
-
-        await using var fileStream = File.OpenRead(wavPath);
-
-        await foreach (var result in processor.ProcessAsync(fileStream))
+        _busy = true;
+        try
         {
-            if (ct.IsCancellationRequested)
+            using var processor = factory.CreateBuilder()
+                .WithLanguage(language)
+                .WithThreads(Environment.ProcessorCount)
+                .Build();
+
+            progress?.Report(("音声を書き起こし中...", 55));
+
+            var rawChunks = new List<(string Text, TimeSpan Start, TimeSpan End)>();
+
+            await using var fileStream = File.OpenRead(wavPath);
+
+            await foreach (var result in processor.ProcessAsync(fileStream))
             {
-                await processor.DisposeAsync();
-                ct.ThrowIfCancellationRequested();
+                if (ct.IsCancellationRequested)
+                {
+                    await processor.DisposeAsync();
+                    ct.ThrowIfCancellationRequested();
+                }
+
+                progress?.Report(("音声を書き起こし中..", 55));
+
+                rawChunks.Add((
+                            result.Text.Trim(),
+                            result.Start,
+                            result.End
+                        ));
             }
 
-            progress?.Report(("音声を書き起こし中..", 55));
+            progress?.Report(("字幕データを生成中...", 95));
+            var subtitles = BuildSubtitles(rawChunks);
 
-            rawChunks.Add((
-                        result.Text.Trim(),
-                        result.Start,
-                        result.End
-                    ));
+            progress?.Report(("完了!", 100));
+            return subtitles;
         }
+        finally
+        {
+            _busy = false;
+            // 書き起こし中に Dispose が呼ばれていた場合はここで解放する
+            if (_disposed)
+                ReleaseFactory();
+        }
+    }
 
-        progress?.Report(("字幕データを生成中...", 95));
-        var subtitles = BuildSubtitles(rawChunks);
+    /// <summary>
+    /// 指定パスのモデルがロード済みならそれを返し、違うモデルなら入れ替える。
+    /// </summary>
+    private WhisperFactory GetOrLoadFactory(string modelPath)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
-        progress?.Report(("完了!", 100));
-        return subtitles;
+        if (_factory != null && _factoryModelPath == modelPath)
+            return _factory;
+
+        ReleaseFactory();
+        _factory = WhisperFactory.FromPath(modelPath);
+        _factoryModelPath = modelPath;
+        return _factory;
+    }
+
+    private void ReleaseFactory()
+    {
+        _factory?.Dispose();
+        _factory = null;
+        _factoryModelPath = null;
+    }
+
+    /// <summary>
+    /// キャッシュしているモデルを解放する。書き起こし中なら終了後に解放する。
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        if (!_busy)
+            ReleaseFactory();
     }
 
     /// <summary>

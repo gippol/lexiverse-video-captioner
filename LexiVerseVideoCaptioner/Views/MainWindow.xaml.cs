@@ -695,6 +695,7 @@ public partial class MainWindow : Window
     {
         base.OnClosed(e);
         _transcriptionCts?.Cancel();
+        _transcriptionSvc.Dispose();
         _playerTimer.Stop();
         VideoPlayer.Stop();
 
