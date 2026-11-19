@@ -39,11 +39,18 @@ public partial class MainWindow : Window
 
     // ── 一時ファイルディレクトリ
     private static readonly string TempDir   = Path.Combine(Path.GetTempPath(), "LexiVerseVideoCaptioner");
-    private static readonly string FFmpegDir = Path.Combine(AppContext.BaseDirectory, "tools/");
-    private static readonly string ModelDir  = Path.Combine(AppContext.BaseDirectory, "models/");
-    private static readonly string LogFilePath = Path.Combine(
+    // ダウンロードしたファイルはユーザーごとの書き込み可能な場所に置く。
+    // アプリのフォルダは Program Files だと書き込めず、誰でも書ける場所だと exe を差し替えられる恐れがある。
+    private static readonly string DataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "LexiVerseVideoCaptioner", "logs", "app.log");
+        "LexiVerseVideoCaptioner");
+    private static readonly string FFmpegDir   = Path.Combine(DataDir, "tools");
+    private static readonly string ModelDir    = Path.Combine(DataDir, "models");
+    private static readonly string LogFilePath = Path.Combine(DataDir, "logs", "app.log");
+
+    // 旧バージョンの保存先（アプリのフォルダ）。起動時に新しい場所へ移行する
+    private static readonly string LegacyFFmpegDir = Path.Combine(AppContext.BaseDirectory, "tools");
+    private static readonly string LegacyModelDir  = Path.Combine(AppContext.BaseDirectory, "models");
 
     // ── 言語選択肢（表示名と Whisper の言語コードを1か所で対応付ける）
     private static readonly (string Label, string Code)[] Languages =
@@ -118,6 +125,9 @@ public partial class MainWindow : Window
         ShowLoadingOverlay(true, "初期化", "初期化中...");
         try
         {
+            SetStatus("データフォルダを確認中...");
+            await Task.Run(MigrateLegacyFiles);
+
             SetStatus("FFmpeg を準備中...");
             await _audioExtractorSvc.EnsureFFmpegAsync(
                 FFmpegDir,
@@ -137,6 +147,48 @@ public partial class MainWindow : Window
         finally
         {
             ShowLoadingOverlay(false);
+        }
+    }
+
+    /// <summary>
+    /// 旧バージョンがアプリのフォルダに保存した FFmpeg・モデルを新しい保存先へ移す。
+    /// 再ダウンロード（数百MB〜1GB超）を避けるため。移した ffmpeg.exe は起動時のハッシュ検証で確認される。
+    /// </summary>
+    private void MigrateLegacyFiles()
+    {
+        MigrateFiles(LegacyModelDir, ModelDir, "ggml_*.bin");
+        MigrateFiles(LegacyFFmpegDir, FFmpegDir, "ffmpeg.exe");
+    }
+
+    private void MigrateFiles(string fromDir, string toDir, string pattern)
+    {
+        if (!Directory.Exists(fromDir)) return;
+
+        foreach (var src in Directory.EnumerateFiles(fromDir, pattern))
+        {
+            var dest = Path.Combine(toDir, Path.GetFileName(src));
+            if (File.Exists(dest)) continue;
+
+            try
+            {
+                Directory.CreateDirectory(toDir);
+                try
+                {
+                    File.Move(src, dest);
+                }
+                catch (Exception moveEx) when (moveEx is IOException or UnauthorizedAccessException)
+                {
+                    // 元フォルダが書き込み禁止（Program Files など）の場合はコピーで移す
+                    File.Copy(src, dest + ".partial", overwrite: true);
+                    File.Move(dest + ".partial", dest);
+                }
+                _logger.LogInformation("旧保存先から移行しました: {src} -> {dest}", src, dest);
+            }
+            catch (Exception ex)
+            {
+                try { File.Delete(dest + ".partial"); } catch { /* 無視 */ }
+                _logger.LogWarning(ex, "旧保存先からの移行に失敗: {src}", src);
+            }
         }
     }
 

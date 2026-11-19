@@ -47,9 +47,9 @@ Load Video → FFmpeg (audio extraction → 16kHz mono WAV) → Whisper.net (tra
 
 **`Views/MainWindow.xaml.cs`** (~580 lines) — Central orchestrator. Combines UI state, WPF `MediaElement` playback, and coordination between services. All business logic lives here (no separate ViewModel). A 200ms `DispatcherTimer` drives subtitle sync with video position.
 
-**`Services/TranscriptionService.cs`** — Wraps Whisper.net. Downloads Whisper model files (Small/Medium/Large/Tiny/Base) on first run into `[AppDir]\models\`. Accepts `IProgress<(string, double)>` and `CancellationToken`. Converts Whisper segments to `SubtitleEntry` objects.
+**`Services/TranscriptionService.cs`** — Wraps Whisper.net. Downloads Whisper model files (Small/Medium/Large/Tiny/Base) on first run into `%LOCALAPPDATA%\LexiVerseVideoCaptioner\models\` and verifies each download against a pinned SHA-256 (`ModelSha256`). Accepts `IProgress<(string, double)>` and `CancellationToken`. Converts Whisper segments to `SubtitleEntry` objects.
 
-**`Services/AudioExtractorService.cs`** — Shells out to FFmpeg CLI. Auto-downloads FFmpeg from BtbN GitHub Releases into `[AppDir]\tools\` on first run. Converts video to 16kHz mono WAV in `%TEMP%\VideoSubtitleApp\`. Parses FFmpeg stderr for progress reporting. Supports cancellation via process termination.
+**`Services/AudioExtractorService.cs`** — Shells out to FFmpeg CLI. Uses `ffmpeg.exe` from an absolute PATH entry if present (always launched by full path); otherwise downloads a pinned BtbN build into `%LOCALAPPDATA%\LexiVerseVideoCaptioner\tools\`, verifying the zip and exe SHA-256 (when bumping the version, update the URL and both hashes together). Converts video to 16kHz mono WAV in `%TEMP%\LexiVerseVideoCaptioner\`. Parses FFmpeg stderr for progress reporting. Supports cancellation via process termination.
 
 **`Services/SrtExporter.cs`** — Exports `List<SubtitleEntry>` to SRT format with UTF-8 BOM.
 
@@ -63,6 +63,8 @@ Dark-themed 3-column layout: title bar | video player (3× width) | subtitle pan
 
 ### Runtime Artifacts
 
-- FFmpeg binary: `[AppDir]\tools\`
-- Whisper models: `[AppDir]\models\`
-- Temp WAV files: `%TEMP%\VideoSubtitleApp\` (cleaned on exit)
+- FFmpeg binary: `%LOCALAPPDATA%\LexiVerseVideoCaptioner\tools\`
+- Whisper models: `%LOCALAPPDATA%\LexiVerseVideoCaptioner\models\`
+- Log file: `%LOCALAPPDATA%\LexiVerseVideoCaptioner\logs\app.log`
+- Legacy `[AppDir]\tools\` and `[AppDir]\models\` (older versions) are migrated to the above on startup
+- Temp WAV files: `%TEMP%\LexiVerseVideoCaptioner\` (cleaned on exit)
