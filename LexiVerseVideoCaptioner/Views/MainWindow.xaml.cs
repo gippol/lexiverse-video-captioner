@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     // ── サービス
     private readonly TranscriptionService _transcriptionSvc;
     private readonly AudioExtractorService _audioExtractorSvc;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MainWindow> _logger;
 
     // ── 状態
@@ -40,6 +41,9 @@ public partial class MainWindow : Window
     private static readonly string TempDir   = Path.Combine(Path.GetTempPath(), "LexiVerseVideoCaptioner");
     private static readonly string FFmpegDir = Path.Combine(AppContext.BaseDirectory, "tools/");
     private static readonly string ModelDir  = Path.Combine(AppContext.BaseDirectory, "models/");
+    private static readonly string LogFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "LexiVerseVideoCaptioner", "logs", "app.log");
 
     // ── 言語選択肢（表示名と Whisper の言語コードを1か所で対応付ける）
     private static readonly (string Label, string Code)[] Languages =
@@ -60,16 +64,19 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        using var loggerFactory = LoggerFactory.Create(builder =>
+        // ウィンドウが閉じるまで保持する（破棄するとログが出力されなくなる）
+        _loggerFactory = LoggerFactory.Create(builder =>
         {
             builder
                 .SetMinimumLevel(LogLevel.Information)
                 .AddFilter("Microsoft", LogLevel.Warning)
                 .AddFilter("System", LogLevel.Warning)
-                .AddFilter("LexiVerseVideoCaptioner.Program", LogLevel.Debug);
+                .AddDebug()                                      // VS の出力ウィンドウ
+                .AddProvider(new FileLoggerProvider(LogFilePath)); // 配布後の調査用
         });
-        _logger            = loggerFactory.CreateLogger<MainWindow>();
-        _transcriptionSvc  = new TranscriptionService(loggerFactory.CreateLogger<TranscriptionService>());
+        _logger            = _loggerFactory.CreateLogger<MainWindow>();
+        _transcriptionSvc  = new TranscriptionService(_loggerFactory.CreateLogger<TranscriptionService>());
+        _logger.LogInformation("アプリを起動しました");
         _audioExtractorSvc = new AudioExtractorService();
 
         _playerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
@@ -587,6 +594,7 @@ public partial class MainWindow : Window
             {
                 MessageBox.Show($"保存に失敗しました:\n{ex.Message}",
                                 "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+                _logger.LogError(ex, "SRT 保存に失敗: {path}", dlg.FileName);
             }
         }
     }
@@ -717,5 +725,8 @@ public partial class MainWindow : Window
                 Directory.Delete(TempDir, recursive: true);
         }
         catch { /* 無視 */ }
+
+        _logger.LogInformation("アプリを終了しました");
+        _loggerFactory.Dispose();
     }
 }
