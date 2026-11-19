@@ -98,6 +98,7 @@ public class TranscriptionService
 
         using var processor = factory.CreateBuilder()
             .WithLanguage(language)
+            .WithThreads(Environment.ProcessorCount)
             .Build();
 
         progress?.Report(("音声を書き起こし中...", 55));
@@ -159,5 +160,5 @@ public class TranscriptionService
         return (GgmlType)Enum.Parse(typeof(GgmlType), typename);
     }
 
-    public static string DefalutModelName = GgmlType.Small.ToString();
+    public static string DefalutModelName = GgmlType.LargeV3Turbo.ToString();
 }
