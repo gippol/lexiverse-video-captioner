@@ -81,21 +81,7 @@ public class TranscriptionService : IDisposable
         {
             progress?.Report(("Whisper モデルをダウンロード中 (初回のみ)...", 5));
 
-            //Thread thread = new(
-            //    p => progress?.Report($"ダウンロード中... {p:F0}%", p * 0.4)
-            //    );
-
-            HttpClient httpClient = new HttpClient();
-            WhisperGgmlDownloader downloader = new WhisperGgmlDownloader(httpClient);
-            using (var modelStream = await downloader.GetGgmlModelAsync(
-                StrToGgmlType(fixdeModelName),
-                QuantizationType.Q8_0,
-                CancellationToken.None
-            ))
-            {
-                await using FileStream fs = File.Create(modelPath);
-                await modelStream.CopyToAsync(fs);
-            }
+            await DownloadModelAsync(fixdeModelName, modelPath, progress, ct);
         }
 
         progress?.Report(("モデルをメモリにロード中...", 45));
@@ -148,6 +134,55 @@ public class TranscriptionService : IDisposable
                 ReleaseFactory();
         }
     }
+
+    /// <summary>
+    /// モデルを一時ファイルにダウンロードし、完了してから正式なファイル名に変える。
+    /// 途中で失敗・キャンセルしても壊れたモデルファイルが残らない。
+    /// </summary>
+    private async Task DownloadModelAsync(
+        string modelName,
+        string modelPath,
+        IProgress<(string Message, double Percent)>? progress,
+        CancellationToken ct)
+    {
+        string partialPath = modelPath + ".partial";
+        try
+        {
+            var downloader = new WhisperGgmlDownloader(SharedHttpClient);
+            await using (var modelStream = await downloader.GetGgmlModelAsync(
+                StrToGgmlType(modelName), QuantizationType.Q8_0, ct))
+            await using (var fs = File.Create(partialPath))
+            {
+                var buffer = new byte[1024 * 1024];
+                long total = 0;
+                long lastReportedMb = -1;
+                int read;
+                while ((read = await modelStream.ReadAsync(buffer, ct)) > 0)
+                {
+                    await fs.WriteAsync(buffer.AsMemory(0, read), ct);
+                    total += read;
+
+                    long mb = total / (1024 * 1024);
+                    if (mb != lastReportedMb && mb % 10 == 0)
+                    {
+                        lastReportedMb = mb;
+                        progress?.Report(($"Whisper モデルをダウンロード中 (初回のみ)... {mb} MB", 5));
+                    }
+                }
+            }
+
+            File.Move(partialPath, modelPath, overwrite: true);
+            _logger.LogInformation("モデルをダウンロードしました: {path}", modelPath);
+        }
+        catch
+        {
+            try { File.Delete(partialPath); } catch { /* 無視 */ }
+            throw;
+        }
+    }
+
+    // HttpClient は使い回す（毎回 new するとソケットを使い切る恐れがある）
+    private static readonly HttpClient SharedHttpClient = new() { Timeout = Timeout.InfiniteTimeSpan };
 
     /// <summary>
     /// 指定パスのモデルがロード済みならそれを返し、違うモデルなら入れ替える。
