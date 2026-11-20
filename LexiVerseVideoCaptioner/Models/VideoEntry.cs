@@ -23,5 +23,10 @@ public class VideoEntry : INotifyPropertyChanged
 
     public int SubtitleCount => _subtitles.Count;
 
+    /// <summary>
+    /// 字幕を生成・編集してから SRT に保存していないか（SRT を読み込んだ・保存した時点で false に戻す）
+    /// </summary>
+    public bool HasUnsavedChanges { get; set; }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }

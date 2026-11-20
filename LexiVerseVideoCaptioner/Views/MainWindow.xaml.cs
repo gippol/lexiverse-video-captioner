@@ -358,6 +358,7 @@ public partial class MainWindow : Window
             var entries = SrtImporter.Import(srtPath);
 
             _currentVideoEntry.Subtitles = entries;
+            _currentVideoEntry.HasUnsavedChanges = false; // ファイルの内容そのままなので未保存ではない
 
             _allSubtitles.Clear();
             _filteredSubtitles.Clear();
@@ -582,6 +583,7 @@ public partial class MainWindow : Window
                 ct: _transcriptionCts.Token);
 
             targetEntry.Subtitles = entries;
+            targetEntry.HasUnsavedChanges = entries.Count > 0;
 
             // 現在表示中の動画が対象と一致する場合のみUIを更新
             if (_currentVideoEntry == targetEntry)
@@ -635,35 +637,45 @@ public partial class MainWindow : Window
     // ────────────────────────────────
     private async void BtnExportSrt_Click(object sender, RoutedEventArgs e)
     {
+        if (_currentVideoEntry == null) return;
+
+        if (await SaveSrtAsync(_currentVideoEntry))
+        {
+            MessageBox.Show("SRT ファイルを保存しました！", "保存完了",
+                            MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
+    /// <summary>
+    /// 保存ダイアログを出して動画の字幕を SRT に保存する。保存できたら true（キャンセル・失敗は false）。
+    /// </summary>
+    private async Task<bool> SaveSrtAsync(VideoEntry entry)
+    {
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
-            Title      = "SRT ファイルを保存",
+            Title      = $"SRT ファイルを保存 - {entry.FileName}",
             Filter     = "SRT 字幕ファイル|*.srt|すべてのファイル|*.*",
             DefaultExt = ".srt",
-            FileName   = _currentVideoEntry != null
-                         ? Path.GetFileNameWithoutExtension(_currentVideoEntry.FilePath)
-                         : "subtitle",
-            // 既定の保存先は選択中の動画と同じフォルダにする
-            InitialDirectory = _currentVideoEntry != null
-                         ? Path.GetDirectoryName(_currentVideoEntry.FilePath) ?? ""
-                         : ""
+            FileName   = Path.GetFileNameWithoutExtension(entry.FilePath),
+            // 既定の保存先は動画と同じフォルダにする
+            InitialDirectory = Path.GetDirectoryName(entry.FilePath) ?? ""
         };
 
-        if (dlg.ShowDialog() == true)
+        if (dlg.ShowDialog(this) != true) return false;
+
+        try
         {
-            try
-            {
-                await SrtExporter.ExportAsync(_allSubtitles, dlg.FileName);
-                SetStatus($"SRT を保存しました: {dlg.FileName}");
-                MessageBox.Show("SRT ファイルを保存しました！", "保存完了",
-                                MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"保存に失敗しました:\n{ex.Message}",
-                                "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
-                _logger.LogError(ex, "SRT 保存に失敗: {path}", dlg.FileName);
-            }
+            await SrtExporter.ExportAsync(entry.Subtitles, dlg.FileName);
+            entry.HasUnsavedChanges = false;
+            SetStatus($"SRT を保存しました: {dlg.FileName}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"保存に失敗しました:\n{ex.Message}",
+                            "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            _logger.LogError(ex, "SRT 保存に失敗: {path}", dlg.FileName);
+            return false;
         }
     }
 
@@ -677,7 +689,10 @@ public partial class MainWindow : Window
         if (result != MessageBoxResult.Yes) return;
 
         if (_currentVideoEntry != null)
+        {
             _currentVideoEntry.Subtitles = new List<SubtitleEntry>();
+            _currentVideoEntry.HasUnsavedChanges = false; // 保存できる字幕がないので確認しない
+        }
 
         _allSubtitles.Clear();
         _filteredSubtitles.Clear();
@@ -721,6 +736,9 @@ public partial class MainWindow : Window
     {
         if (SubtitleList.SelectedItem is SubtitleEntry entry)
         {
+            if (entry.Text != TxtEditSubtitle.Text && _currentVideoEntry != null)
+                _currentVideoEntry.HasUnsavedChanges = true;
+
             entry.Text = TxtEditSubtitle.Text;
 
             var idx = _filteredSubtitles.IndexOf(entry);
@@ -774,6 +792,55 @@ public partial class MainWindow : Window
             _loadingTimer.Stop();
             TxtElapsedTime.Text = "";
         }
+    }
+
+    // ────────────────────────────────
+    // ウィンドウを閉じる前の未保存確認
+    // ────────────────────────────────
+    private bool _closeConfirmed;
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        base.OnClosing(e);
+        if (e.Cancel || _closeConfirmed) return;
+
+        var unsaved = _videoList.Where(v => v.HasUnsavedChanges && v.Subtitles.Count > 0).ToList();
+        if (unsaved.Count == 0) return;
+
+        var names = string.Join("\n", unsaved.Select(v => $"・{v.FileName}"));
+        var result = MessageBox.Show(
+            $"SRT に保存していない字幕があります。\n\n{names}\n\n保存しますか？",
+            "未保存の字幕", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+
+        switch (result)
+        {
+            case MessageBoxResult.No:
+                return; // 保存せずに閉じる
+            case MessageBoxResult.Yes:
+                e.Cancel = true;
+                // 保存は非同期なので、Closing を抜けてから保存し、終わったら閉じ直す
+                Dispatcher.BeginInvoke(async () => await SaveAllThenCloseAsync(unsaved));
+                return;
+            default:
+                e.Cancel = true; // キャンセル: 閉じない
+                return;
+        }
+    }
+
+    private async Task SaveAllThenCloseAsync(List<VideoEntry> unsaved)
+    {
+        foreach (var entry in unsaved)
+        {
+            // 保存ダイアログをキャンセル・保存に失敗したら、閉じずに画面に戻る
+            if (!await SaveSrtAsync(entry))
+            {
+                SetStatus("保存されていない字幕があるため、終了を取り消しました。");
+                return;
+            }
+        }
+
+        _closeConfirmed = true;
+        Close();
     }
 
     // ────────────────────────────────
