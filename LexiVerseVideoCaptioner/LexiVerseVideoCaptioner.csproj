@@ -21,4 +21,21 @@
     <Folder Include="Assets\" />
   </ItemGroup>
 
+  <!--
+    NPU (AMD Ryzen AI) 用の whisper.cpp。amd/whisper.cpp を -DWHISPER_VITISAI=1 でビルドし、
+    リポジトリ直下の whisperCpp\build\bin\Release に置いたものを出力先の npu\ にコピーする。
+    置いていない環境ではコピーされず、アプリでは NPU が選べなくなるだけ。
+    Whisper.net の whisper.dll / ggml*.dll と混ざらないよう npu\ サブフォルダに分ける。
+  -->
+  <PropertyGroup>
+    <NpuWhisperDir>$(MSBuildThisFileDirectory)..\whisperCpp\build\bin\Release\</NpuWhisperDir>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(NpuWhisperDir)whisper-cli.exe')">
+    <None Include="$(NpuWhisperDir)whisper-cli.exe;$(NpuWhisperDir)whisper.dll;$(NpuWhisperDir)ggml.dll;$(NpuWhisperDir)ggml-base.dll;$(NpuWhisperDir)ggml-cpu.dll;$(NpuWhisperDir)flexmlrt.dll"
+          Link="npu\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
 </Project>

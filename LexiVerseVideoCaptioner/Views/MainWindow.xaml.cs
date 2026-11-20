@@ -59,6 +59,12 @@ public partial class MainWindow : Window
         ("英語",   "en"),
     };
 
+    // ── 書き起こしに使う装置
+    private const string DeviceGpuCpu = "GPU / CPU";
+    private const string DeviceNpu    = "NPU (Ryzen AI)";
+
+    private bool UseNpu => ComboDeviceSettings.SelectedItem as string == DeviceNpu;
+
     private string SelectedLanguageCode =>
         ComboLanguageSettings.SelectedIndex is int i && i >= 0 && i < Languages.Length
             ? Languages[i].Code
@@ -103,6 +109,11 @@ public partial class MainWindow : Window
         ComboLanguageSettings.SelectedIndex = 0;
         ComboModelSettings.ItemsSource      = TranscriptionService.GgmlTypeStr;
         ComboModelSettings.SelectedIndex    = TranscriptionService.GgmlTypeStr.IndexOf(TranscriptionService.DefalutModelName);
+        // NPU 版 whisper-cli が同梱されているときだけ NPU を選べるようにする
+        ComboDeviceSettings.ItemsSource     = NpuWhisperRunner.IsAvailable
+                                              ? new[] { DeviceGpuCpu, DeviceNpu }
+                                              : new[] { DeviceGpuCpu };
+        ComboDeviceSettings.SelectedIndex   = 0;
 
         AllowDrop = true;
         Drop     += MainWindow_Drop;
@@ -566,6 +577,7 @@ public partial class MainWindow : Window
                 ModelDir,
                 modelName: ComboModelSettings.SelectedValue?.ToString() ?? "",
                 language: SelectedLanguageCode,
+                useNpu: UseNpu,
                 progress: transcribeProgress,
                 ct: _transcriptionCts.Token);
 

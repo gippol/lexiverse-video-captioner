@@ -51,6 +51,8 @@
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Grid.Column="1">
                     <ComboBox x:Name="ComboLanguageSettings" Margin="5" Style="{StaticResource HeaderComboBoxStyle}"></ComboBox>
                     <ComboBox x:Name="ComboModelSettings" Margin="5" Style="{StaticResource HeaderComboBoxStyle}"></ComboBox>
+                    <ComboBox x:Name="ComboDeviceSettings" Margin="5" Style="{StaticResource HeaderComboBoxStyle}"
+                              ToolTip="書き起こしに使う装置。NPU は AMD Ryzen AI 300 シリーズ向けです"></ComboBox>
                 </StackPanel>
 
                 <!-- ファイル操作ボタン群 -->

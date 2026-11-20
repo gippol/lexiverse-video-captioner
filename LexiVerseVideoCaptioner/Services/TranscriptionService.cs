@@ -33,9 +33,12 @@ public class TranscriptionService : IDisposable
     // 字幕の表示時間の最大値 (ms)
     private const int MaxSubtitleDurationMs = 5000;
 
+    private readonly NpuWhisperRunner _npuRunner;
+
     public TranscriptionService(ILogger<TranscriptionService> logger)
     {
         _logger = logger;
+        _npuRunner = new NpuWhisperRunner(logger);
     }
 
     /// <summary>
@@ -64,6 +67,7 @@ public class TranscriptionService : IDisposable
       string modelDir,
       string modelName,
       string language = "ja",
+      bool useNpu = false,
       IProgress<(string Message, double Percent)>? progress = null,
       CancellationToken ct = default)
     {
@@ -71,6 +75,17 @@ public class TranscriptionService : IDisposable
             throw new InvalidOperationException("InitializeAsync を先に呼んでください。");
 
         string fixdeModelName = GgmlTypeStr.Contains(modelName) ? modelName : DefalutModelName;
+
+        // 大きなモデルをダウンロードしてから失敗しないよう、NPU の可否は先に確認する
+        if (useNpu)
+        {
+            if (!NpuWhisperRunner.IsAvailable)
+                throw new FileNotFoundException("NPU 版 whisper-cli.exe が見つかりません。", NpuWhisperRunner.CliPath);
+            if (!NpuWhisperRunner.SupportsModel(fixdeModelName))
+                throw new NotSupportedException(
+                    $"モデル {fixdeModelName} は NPU に対応していません。\n" +
+                    "Tiny / Base / Small / SmallEn / Medium / LargeV3 / LargeV3Turbo を選んでください。");
+        }
         string modelPath = Path.Combine(modelDir, $"ggml_{fixdeModelName}.bin");
 
         Directory.CreateDirectory(modelDir);
@@ -82,6 +97,23 @@ public class TranscriptionService : IDisposable
             progress?.Report(("Whisper モデルをダウンロード中 (初回のみ)...", 5));
 
             await DownloadModelAsync(fixdeModelName, modelPath, progress, ct);
+        }
+
+        if (useNpu)
+        {
+            // NPU は別プロセス (whisper-cli.exe) で動かすので、Whisper.net のモデルはロードしない
+            await _npuRunner.EnsureRaiAsync(fixdeModelName, modelPath, SharedHttpClient, progress, ct);
+
+            var npuChunks = await _npuRunner.TranscribeAsync(
+                wavPath, modelPath, language,
+                workDir: Path.GetDirectoryName(wavPath)!,
+                progress, ct);
+
+            progress?.Report(("字幕データを生成中...", 95));
+            var npuSubtitles = BuildSubtitles(npuChunks);
+
+            progress?.Report(("完了!", 100));
+            return npuSubtitles;
         }
 
         progress?.Report(("モデルをメモリにロード中...", 45));
