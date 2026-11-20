@@ -49,6 +49,8 @@ Load Video → FFmpeg (audio extraction → 16kHz mono WAV) → Whisper.net (tra
 
 **`Services/TranscriptionService.cs`** — Wraps Whisper.net. Downloads Whisper model files (Small/Medium/Large/Tiny/Base) on first run into `%LOCALAPPDATA%\LexiVerseVideoCaptioner\models\` and verifies each download against a pinned SHA-256 (`ModelSha256`). Accepts `IProgress<(string, double)>` and `CancellationToken`. Converts Whisper segments to `SubtitleEntry` objects.
 
+**`Services/NpuWhisperRunner.cs`** — Optional NPU path (AMD Ryzen AI 300). Runs `npu\whisper-cli.exe` (AMD's `amd/whisper.cpp` fork built with `-DWHISPER_VITISAI=1`) as a subprocess instead of Whisper.net, parses its JSON output and stderr progress. The csproj copies the binaries from `whisperCpp\build\bin\Release\` (git-ignored, local build) into the output's `npu\` folder only if present; the "NPU" device option appears only then. Needs `ggml_<Model>-encoder-vitisai.rai` next to the model, downloaded from AMD's Hugging Face repos at a pinned revision and verified by SHA-256 (`RaiFiles`). Models without an AMD `.rai`: TinyEn, BaseEn, MediumEn, LargeV1, LargeV2.
+
 **`Services/AudioExtractorService.cs`** — Shells out to FFmpeg CLI. Uses `ffmpeg.exe` from an absolute PATH entry if present (always launched by full path); otherwise downloads a pinned BtbN build into `%LOCALAPPDATA%\LexiVerseVideoCaptioner\tools\`, verifying the zip and exe SHA-256 (when bumping the version, update the URL and both hashes together). Converts video to 16kHz mono WAV in `%TEMP%\LexiVerseVideoCaptioner\`. Parses FFmpeg stderr for progress reporting. Supports cancellation via process termination.
 
 **`Services/SrtExporter.cs`** — Exports `List<SubtitleEntry>` to SRT format with UTF-8 BOM.

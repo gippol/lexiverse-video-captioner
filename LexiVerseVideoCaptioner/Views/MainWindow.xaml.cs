@@ -642,7 +642,11 @@ public partial class MainWindow : Window
             DefaultExt = ".srt",
             FileName   = _currentVideoEntry != null
                          ? Path.GetFileNameWithoutExtension(_currentVideoEntry.FilePath)
-                         : "subtitle"
+                         : "subtitle",
+            // 既定の保存先は選択中の動画と同じフォルダにする
+            InitialDirectory = _currentVideoEntry != null
+                         ? Path.GetDirectoryName(_currentVideoEntry.FilePath) ?? ""
+                         : ""
         };
 
         if (dlg.ShowDialog() == true)
